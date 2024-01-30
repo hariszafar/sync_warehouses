@@ -1,0 +1,96 @@
+default:
+  image: gryphon/php-yarn:8.1
+cache: &global_cache
+  key:
+    files:
+      - composer.lock
+  paths:
+    - vendor/
+  policy: pull-push
+
+stages:
+  - build
+  - deploy
+  - deploy-stage
+  - deploy-live
+
+sno:build:
+  stage: build
+  tags:
+    - gryphon # run on private runner
+  script:
+    # Install app
+    - composer install -q --ignore-platform-reqs --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+sno:deploy:
+  stage: deploy
+  needs: ["sno:build"]
+  # only for develop branch deploy to staging
+  only:
+    refs:
+      - develop
+  cache:
+    # inherit all global cache settings
+    <<: *global_cache
+    # override the policy
+    policy: pull
+  tags:
+    - gryphon
+  script:
+    # gitlab does not correctly parse certificate from textarea input on their ui, so has to be base64 encoded and decoded
+    - "which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )"
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY_64" | base64 -d)
+    - mkdir -p ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    - vendor/bin/envoy run deploy --commit="$CI_COMMIT_SHA"
+  environment:
+    name: development
+
+sno:deploy-stage:
+  stage: deploy-stage
+  # only for develop branch deploy to staging
+  only:
+    refs:
+      - stage
+  cache:
+    # inherit all global cache settings
+    <<: *global_cache
+    # override the policy
+    policy: pull
+  tags:
+    - gryphon
+  script:
+    # gitlab does not correctly parse certificate from textarea input on their ui, so has to be base64 encoded and decoded
+    - "which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )"
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY_64" | base64 -d)
+    - mkdir -p ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    - vendor/bin/envoy run deploy --stage=stage --commit="$CI_COMMIT_SHA"
+  environment:
+    name: staging
+
+sno:deploy-live:
+  stage: deploy-live
+  # only for develop branch deploy to staging
+  only:
+    refs:
+      - main
+  cache:
+    # inherit all global cache settings
+    <<: *global_cache
+    # override the policy
+    policy: pull
+  tags:
+    - gryphon
+  script:
+    # gitlab does not correctly parse certificate from textarea input on their ui, so has to be base64 encoded and decoded
+    - "which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )"
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY_64" | base64 -d)
+    - mkdir -p ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    - vendor/bin/envoy run deploy --production=main --commit="$CI_COMMIT_SHA"
+  environment:
+    name: production

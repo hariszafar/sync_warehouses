@@ -1,0 +1,22 @@
+{
+    "name": "periscope365/snowflake_dw",
+    "type": "project",
+    "require": {
+        "aws/aws-sdk-php": "^3.293",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Periscope365\\SnowflakeDw\\": "lib/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Ben Marchbanks",
+            "email": "ben.marchbanks@periscope365.com"
+        }
+    ],
+    "require-dev": {
+        "laravel/envoy": "^2.8"
+    }
+}

@@ -1,0 +1,8 @@
+/vendor/
+/abc.php
+.env
+data.json
+demoSlicedData.json
+snowflake.log
+rds.log
+demodata.php
