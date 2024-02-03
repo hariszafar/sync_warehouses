@@ -43,7 +43,7 @@ $targets = [];
 if (defined('PHP_SAPI') && 'cli' === PHP_SAPI) {
     $GLOBALS['_SESSION'] = [];
     // get options eg ETL.php --type therapist
-    $options = getopt(null, ['tables:', 'days_old:', 'logging_off:', 'target:', 'verbose:', 'ignore:', 'debug_logging:', 'local_testing:']); // returns an array
+    $options = getopt(null ?? '', ['tables:', 'days_old:', 'logging_off:', 'target:', 'verbose:', 'ignore:', 'debug_logging:', 'local_testing:']); // returns an array
     //var_dump($options);
     //  exit;
 } elseif (session_status() == PHP_SESSION_NONE) { // uses session to store data api token
@@ -82,6 +82,11 @@ if (in_array('rds', $targets)) {
 }
 
 $verboseLogging = (isset($options['verbose']) || isset($_REQUEST['verbose'])) ?? false;
+if ($verboseLogging) {
+    $verboseLogLevel = ((int) ($options['verbose'] ?? $_REQUEST['verbose']) > 0) ? (int) ($options['verbose'] ?? $_REQUEST['verbose']) : 1;
+} else {
+    $verboseLogLevel = 1;
+}
 //require_once(__DIR__ . DIRECTORY_SEPARATOR . '/lib/CloudWatchLogger.php');
 
 // if (stripos(strtolower($options['target']), 'snowflake') > -1) {
@@ -479,7 +484,7 @@ $source_list = [];
 //$start_date ="01/01/2010";
 
 // default first date time in case the lastSyncedTimestamp can't be retrieved from either the sync_status table or the source table
-$defaultFirstDateTime = '01/01/2020 00:00:00';
+$defaultFirstDateTime = '01/01/1970 00:00:00';
 
 if (isset($options['days_old'])) {
     $daysOldSet = true;
@@ -522,6 +527,9 @@ $limit = 1000;
 if (!$targetedExecution || $rdsTargeted) {
     $rds = new RDS_load($config);
     $rds->setVerboseExecutionLogging($verboseLogging);
+    if ($verboseLogging) {
+        $rds->setVerboseLogLevel($verboseLogLevel);
+    }
     $rds->clearLogFile(); // initialize log file
     $rds->setDebugLogging($debug_logging);
 }
@@ -530,6 +538,9 @@ if (!$targetedExecution || $snowflakeTargeted) {
         //code...
         $snow = new SnowflakeLoader($config['snowflake']);
         $snow->setVerboseExecutionLogging($verboseLogging);
+        if ($verboseLogging) {
+            $snow->setVerboseLogLevel($verboseLogLevel);
+        }
         $snow->clearLogFile(); // initialize log file
         $snow->setDebugLogging($debug_logging);
         // Fetch the last synced timestamp for the current table from the sync_status table
@@ -569,7 +580,7 @@ $snowflakeTimeLapse = [];
  */
 function prepareSearch(Loader &$targetLoader, $daysOldSet = false, $daysOffset = 0, $lastUpdate = null, $destTable = '', $sourceSearchQuery = [])
 {
-    global $defaultFirstDateTime, $localTesting;
+    global $defaultFirstDateTime, $localTesting, $verboseLogLevel;
     $search = $sourceSearchQuery ?? [];
     $isTimestampTable = false;
     if (!$targetLoader) {
@@ -586,44 +597,95 @@ function prepareSearch(Loader &$targetLoader, $daysOldSet = false, $daysOffset =
         } else {
             // If the days_old parameter is not set, fetch & use the lastSyncedTimestamp
             if (!$daysOldSet) {
-                $lastSyncedTimestamp = $targetLoader->getLastSyncedTimestamp($destTable);
+                // $lastSyncedTimestamp = $targetLoader->getLastSyncedTimestamp($destTable);
+                $lastSyncedTimestamp = $targetLoader->getLastSyncedTimestamp($destTable) ?? $defaultFirstDateTime;
                 // if the timestamp contains trailing zeros (e.g .0000...) remove them
-                $lastSyncedTimestamp = rtrim($lastSyncedTimestamp, '.0');
+                // $lastSyncedTimestamp = rtrim($lastSyncedTimestamp, '.0'); //rtrim was removing the zeros in the second after the colon in the timestamp
 
+                $lastSyncedTimestamp = explode('.', $lastSyncedTimestamp ?? '')[0]; //explode the timestamp and remove the trailing zeros
+                //This section will now be skipped as we're falling back to the default first datetime
+                // echo "initial \$lastSyncedTimestamp = {$lastSyncedTimestamp}" . PHP_EOL;
                 // if the lastSyncedTimestamp is not set, then we'll fetch the very first lastmodified timestamp from the source table from FM_extract
-                if (!$lastSyncedTimestamp) {
-                    $lastSyncedTimestamp = getTableFirstLastModifiedTimestamp($destTable) ?? $defaultFirstDateTime;
-                } else {
-                    // We've retrieved the last synced timesatamp from either RDS or Snowflake, and the format is 'Y-m-d H:i:s'
-                    // Now, let's convert it to 'm/d/Y H:i:s'
-                    $timestamp = date_create_from_format('Y-m-d H:i:s', $lastSyncedTimestamp);
-                    $lastSyncedTimestamp = date_format($timestamp, 'm/d/Y H:i:s');
+                // if (!$lastSyncedTimestamp) {
+                //     if($verboseLogLevel > 1) {
+                //         echo "Couldn't Fetch datetime from sync_table." . PHP_EOL;
+                //     }
+                //     $lastSyncedTimestamp = getTableFirstLastModifiedTimestamp($destTable); //FM format should be 'm/d/Y H:i:s'
+                //     if($verboseLogLevel > 1) {
+                //         echo "Getting first timestamp from FM source table = {$lastSyncedTimestamp}" . PHP_EOL;
+                //     }
+                //     if (!$lastSyncedTimestamp) {
+                //         if($verboseLogLevel > 1) {
+                //             echo "Couldn't Fetch datetime from FM source table either. Setting lastSyncedTimestamp to default ({$defaultFirstDateTime})" . PHP_EOL;
+                //         }
+                //         // if the lastSyncedTimestamp is not set, then we'll use the default first datetime
+                //         $lastSyncedTimestamp = $defaultFirstDateTime; //we've set the format to 'm/d/Y H:i:s' above
+                //     }
+                // } else {
+                //     // We've retrieved the last synced timesatamp from either RDS or Snowflake, and the expected format is 'm/d/Y H:i:s'
+                //     // Now, let's convert it to 'm/d/Y H:i:s'
+                //     if($verboseLogLevel > 1) {
+                //         echo "Retrieved lastSyncedTimestamp from sync_table = {$lastSyncedTimestamp}" . PHP_EOL;
+                //     }
+
+                //     $timestamp = date_create_from_format('m/d/Y H:i:s', $lastSyncedTimestamp);
+                //     $lastSyncedTimestamp = date_format($timestamp, 'm/d/Y H:i:s');
+
+                //     if($verboseLogLevel > 1) {
+                //         echo "Converted lastSyncedTimestamp to FM format = {$lastSyncedTimestamp}" . PHP_EOL;
+                //     }
+                // }
+
+                // // echo "after setting timestamp \$lastSyncedTimestamp = {$lastSyncedTimestamp}" . PHP_EOL;
+                // // $offsetDatetime = date("m/d/Y H:i:s", (strtotime($lastSyncedTimestamp) + ($daysOffset * 24 * 60 * 60)));
+                // $currentDateTime = date('m/d/Y H:i:s');
+
+                // $lastSyncedDateTime = date_create_from_format('m/d/Y H:i:s', $lastSyncedTimestamp);
+                // if ($verboseLogLevel > 1) {
+                //     echo "lastSyncedDateTime => " . var_dump($lastSyncedDateTime) . PHP_EOL;
+                // }
+                // $offsetDateTime = date_create_from_format('m/d/Y H:i:s', $lastSyncedTimestamp);
+                // if ($verboseLogLevel > 1) {
+                //     echo "offsetDateTime (before date_add) => " . var_dump($offsetDateTime) . PHP_EOL;
+                // }
+                // $offsetDateTime  = date_add($offsetDateTime, date_interval_create_from_date_string($daysOffset . ' days'));
+                // if ($verboseLogLevel > 1) {
+                //     echo "offsetDateTime (after date_add) => " . var_dump($offsetDateTime) . PHP_EOL;
+                // }
+
+                // if ($offsetDateTime > date_create_from_format('m/d/Y H:i:s', $currentDateTime)) {
+                //     $offsetDateTime = date_create_from_format('m/d/Y H:i:s', $currentDateTime);
+                // }
+                // if ($verboseLogLevel > 1) {
+                //     echo "offsetDateTime (after comparison with current date) => " . var_dump($offsetDateTime) . PHP_EOL;
+                // }
+
+                // // loaders accept the datetime in 'Y-m-d H:i:s' (which is close to ISO 8601 format, excluding the \T for timezone)
+                // // TODO: get rid of setting the offsetDatetime here. It should be done during the updateTable method call
+                // $targetLoader->setOffsetDatetime(date_format($offsetDateTime, 'Y-m-d H:i:s'));
+                // if ($localTesting) {
+                //     $lastSyncedTimestamp = date_format($lastSyncedDateTime, 'Y-m-d H:i:s');
+                //     $offsetTimestamp = date_format($offsetDateTime, 'Y-m-d H:i:s');
+                // } else {
+                //     $lastSyncedTimestamp = date_format($lastSyncedDateTime, 'm/d/Y H:i:s');
+                //     $offsetTimestamp = date_format($offsetDateTime, 'm/d/Y H:i:s');
+                // }
+
+                if ($verboseLogLevel > 1) {
+                    echo "Timestamps for search values: " . PHP_EOL;
+                    echo "lastSyncedTimestamp => " . var_dump($lastSyncedTimestamp) . PHP_EOL;
+                    // echo "offsetTimestamp => " . var_dump($offsetTimestamp) . PHP_EOL;
+                    echo "Serach before replacing:" . PHP_EOL;
+                    var_dump($search);
                 }
-                // $offsetDatetime = date("m/d/Y H:i:s", (strtotime($lastSyncedTimestamp) + ($daysOffset * 24 * 60 * 60)));
-                $currentDateTime = date('m/d/Y H:i:s');
-
-                $lastSyncedDateTime = date_create_from_format('m/d/Y H:i:s', $lastSyncedTimestamp);
-                $offsetDateTime = date_create_from_format('m/d/Y H:i:s', $lastSyncedTimestamp);
-
-                $offsetDateTime  = date_add($offsetDateTime, date_interval_create_from_date_string($daysOffset . ' days'));
-
-                if ($offsetDateTime > date_create_from_format('m/d/Y H:i:s', $currentDateTime)) {
-                    $offsetDateTime = date_create_from_format('m/d/Y H:i:s', $currentDateTime);
-                }
-
-                // loaders accept the datetime in 'Y-m-d H:i:s' (which is close to ISO 8601 format, excluding the \T for timezone)
-                $targetLoader->setOffsetDatetime(date_format($offsetDateTime, 'Y-m-d H:i:s'));
-                if ($localTesting) {
-                    $lastSyncedTimestamp = date_format($lastSyncedDateTime, 'Y-m-d H:i:s');
-                    $offsetTimestamp = date_format($offsetDateTime, 'Y-m-d H:i:s');
-                } else {
-                    $lastSyncedTimestamp = date_format($lastSyncedDateTime, 'm/d/Y H:i:s');
-                    $offsetTimestamp = date_format($offsetDateTime, 'm/d/Y H:i:s');
-                }
-
                 foreach ($search as $key => $value) {
-                    // $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, $lastSyncedTimestamp . '...' . $offsetDatetime, $value);
-                    $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, $lastSyncedTimestamp . '...' . $offsetTimestamp, $value);
+                    // $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, $lastSyncedTimestamp . '...' . $offsetTimestamp, $value);
+                    // We're not searching between timestamps anymore
+                    $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, ">=" . $lastSyncedTimestamp, $value);
+                }
+                if ($verboseLogLevel > 1) {
+                    echo "Serach after replacing:" . PHP_EOL;
+                    var_dump($search);
                 }
             } else {
                 foreach ($search as $key => $value) {
@@ -686,6 +748,7 @@ function shouldExtractOnce($rdsSearch = [], $snowflakeSearch = [])
     return $extractOnce;
 }
 
+// TODO: This function is not used. Keep commented out for now.
 /**
  * Retrieves the first 'last modified' timestamp of a specified destination table.
  * This is used as the offset datetime for the next sync iteration. The returned timestamp is in the format m/d/Y H:i:s.
@@ -693,40 +756,58 @@ function shouldExtractOnce($rdsSearch = [], $snowflakeSearch = [])
  * @param string $destTable The name of the destination table.
  * @return string|null The first modified timestamp of the destination table, or null if no records are found.
  */
-function getTableFirstLastModifiedTimestamp($destTable)
-{
-    global $db, $host, $tablesMap, $localTesting;
-    $firstLastModifiedTimestamp = null;
-    $sort = getTimeSort($destTable);
+// function getTableFirstLastModifiedTimestamp($destTable)
+// {
+//     global $db, $host, $tablesMap, $localTesting, $verboseLogLevel;
+//     $firstLastModifiedTimestamp = null;
+//     $sort = getTimeSort($destTable);
+//     if ($verboseLogLevel > 1) {
+//         echo "getTableFirstLastModifiedTimestamp() => \$sort = " . var_dump($sort) . PHP_EOL;
+//         echo PHP_EOL . "ABOUT TO EXECUTE". PHP_EOL;
+//     }
 
-    // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [], 1, 0, ["fieldName" => $searchColumn, "sortOrder" => "ascend"], [], true);
-    // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [], 1, 0, $sort, [], true); // extra debug parameter for mock testing
-    $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [], 1, 0, $sort, []);
-    $rs = $fquery->getRecordSet();
-    $rs_array = json_decode($rs ?? '', true);
-    if (is_array($rs_array) && count($rs_array) > 0) {
-        $firstLastModifiedTimestamp = $rs_array[0][$sort["fieldName"]];
-    }
-    if ($localTesting) {
-        // $firstLastModifiedTimestamp = date('Y/m/d H:i:s', strtotime($firstLastModifiedTimestamp));
-        if( strpos($firstLastModifiedTimestamp, '/') !== false) {
-            $date = date('Y/m/d H:i:s', $firstLastModifiedTimestamp);
-        } else {
-            //otherwise, consider the date separator to contain dashes
-            $date = date_create_from_format("Y-m-d H:i:s", $firstLastModifiedTimestamp);
-        }
-    } else {
-        if( strpos($firstLastModifiedTimestamp, '/') !== false) {
-            $date = date_create_from_format("m/d/Y H:i:s", $firstLastModifiedTimestamp);
-        } else {
-            //otherwise, consider the date separator to contain dashes
-            $date = date_create_from_format("m-d-Y H:i:s", $firstLastModifiedTimestamp);
-        }
-    }
-    $firstLastModifiedTimestamp = date_format($date, "m/d/Y H:i:s");
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [], 1, 0, ["fieldName" => $searchColumn, "sortOrder" => "ascend"], [], true);
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [], 1, 0, $sort, [], true); // extra debug parameter for mock testing
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [['modificationHostTimestamp' => '>'.'01/01/1970 00:00:00']], 1, 0, $sort, []);
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [['modificationHostTimestamp' => '*']], 1, 0, null, []);
 
-    return $firstLastModifiedTimestamp;
-}
+//     $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [['modificationHostTimestamp' => '*']], 1, 0, $sort, []);
+//     $rs = $fquery->getRecordSet();
+//     // $rs = $fquery->dbse->find([], ['modificationHostTimestamp', 'Ascend'], 1, 0);
+//     // $rs = $fquery->dbse->all();
+
+
+//     if ($verboseLogLevel > 1) {
+//         echo "getTableFirstLastModifiedTimestamp() => \$rs = " . var_dump($rs) . PHP_EOL;
+//     }
+//     $rs_array = json_decode($rs ?? '', true);
+//     if (is_array($rs_array) && count($rs_array) > 0) {
+//         // $firstLastModifiedTimestamp = $rs_array[0][$sort["fieldName"]];
+//         $firstLastModifiedTimestamp = $rs_array[0][$sort[0]["fieldName"]];
+//     }
+//     if ($localTesting) {
+//         // $firstLastModifiedTimestamp = date('Y/m/d H:i:s', strtotime($firstLastModifiedTimestamp));
+//         if( strpos($firstLastModifiedTimestamp, '/') !== false) {
+//             $date = date('Y/m/d H:i:s', $firstLastModifiedTimestamp);
+//         } else {
+//             //otherwise, consider the date separator to contain dashes
+//             $date = date_create_from_format("Y-m-d H:i:s", $firstLastModifiedTimestamp);
+//         }
+//     } else {
+//         if( strpos($firstLastModifiedTimestamp, '/') !== false) {
+//             $date = date_create_from_format("m/d/Y H:i:s", $firstLastModifiedTimestamp);
+//         } else {
+//             //otherwise, consider the date separator to contain dashes
+//             $date = date_create_from_format("m-d-Y H:i:s", $firstLastModifiedTimestamp);
+//         }
+//     }
+//     // update the $date variable, and take date one day back
+//     date_sub($date, date_interval_create_from_date_string('1 day'));
+
+//     $firstLastModifiedTimestamp = date_format($date, "m/d/Y 00:00:00");
+
+//     return $firstLastModifiedTimestamp;
+// }
 
 /**
  * Returns the timestamp column used for sorting in the given destination table, with default ascending sort order.
@@ -750,7 +831,86 @@ function getTimeSort($destTable)
         }
     }
     // return $searchColumn;
-    return ["fieldName" => $searchColumn, "sortOrder" => "ascend"];
+    $sort = [];
+    $sort[] = ["fieldName" => $searchColumn, "sortOrder" => "ascend"];
+    return $sort;
+}
+
+/**
+ * Updates the ETL log in the database with the summary of records modified, added, and unchanged.
+ *
+ * @param object $rds The RDS object used for database operations.
+ * @param array $log The log array containing the data table and the summary of update results.
+ * @param int $timeLapse The time lapse value for the data table.
+ * @param string $lastUpdate The last update timestamp.
+ * @return void
+ */
+function rdsEtlLogUpdate(&$rds, $log, $timeLapse, $lastUpdate)
+{
+    global $primaryKeyPairs, $logging;
+
+    $nochange_records = 0;
+    $change_records = 0;
+    $add_records  = 0;
+    $dataTable = $log[0];
+    $updateResultSum = $log[1];
+
+    $records = [];
+    $record = [];
+    $record["data_table"] = $dataTable;
+    $record["records_modified"] =  $updateResultSum[2] ?? 0;
+    $record["records_added"] =  $updateResultSum[1] ?? 0;
+    $record["records_unchanged"] =  $updateResultSum[0] ?? 0;
+    $record["date_modified"] = $lastUpdate;
+    $record["date_time"] = date("Y-m-d H:i:s");
+    $record["timelapse"] = $timeLapse ?? 0;
+    $nochange_records += $updateResultSum[0] ?? 0;
+    $change_records += $updateResultSum[2] ?? 0;
+    $add_records  += $updateResultSum[1] ?? 0;
+    $records[] = $record;
+
+    $total_records = ($nochange_records + $change_records + $add_records);
+
+    if ($total_records > 0) {
+        $json_log = json_encode($records, true);
+        if ($logging) {
+            $dest_table = "etl_log";
+            $primaryKey = $primaryKeyPairs[$dest_table];
+            $rds->updateTable($json_log, $dest_table, $primaryKey);
+        }
+    }
+}
+
+function snowEtlLogUpdate($snow, $logRecord, $timeLapse, $lastModifiedTimestamp)
+{
+    global $primaryKeyPairs, $logging;
+    $snowflakeRecords = [];
+    foreach ($logRecord as $table => $affectedRows) {
+        // $update_date = date_create($last_update ?? $snowLastModified[$table]);
+        // $update_date = isset($laste_update) ? date_create_from_format("m/d/Y H:i:s", $last_update) : date_create_from_format("Y-m-d H:i:s", $snowLastModified[$table]);
+        // $last_update_formatted =   date_format($update_date, 'Y-m-d');
+
+        $snowflakeRecord = [];
+        $snowflakeRecord["data_table"] = $table;
+        /* Unlike MySQL, even in the case of an update
+        where nothing is changed, snowflake returns it as an affected Row
+        So, we can't track unchanged records separately.
+        Therefore, we're only recording the affected rows returned by snowflake.
+        */
+        $snowflakeRecord["affected_rows"] =  $affectedRows;
+        $snowflakeRecord["date_modified"] = $lastModifiedTimestamp;
+        $snowflakeRecord["date_time"] = date("Y-m-d H:i:s");
+        // $snowflakeRecord["timelapse"] = (int)array_sum($snowflakeTimeLapse); //this is actually the total timelapse of the script, not just snowflake
+        $snowflakeRecord["timelapse"] = (int)$timeLapse; //this is the total timelapse for the particular table (including multiple iterations)
+        $snowflakeRecords[] = $snowflakeRecord;
+    }
+
+    if ($logging) {
+        $json_log = json_encode($snowflakeRecords, true);
+        $dest_table = "etl_log";
+        $primaryKey = $primaryKeyPairs[$dest_table];
+        $snow->updateTable($json_log, $dest_table, $primaryKey, true);
+    }
 }
 
 // Let's sync the data for each table (or each requested/targeted table)
@@ -761,10 +921,14 @@ foreach ($tablesMap as $dest_table => $source_table)
         $isTimestampTable = searchContainsTimestamps($sourceSearchQuery[$dest_table] ?? []);
         // $sort = ($isTimestampTable) ? $timeSort : null;
         $sort = ($isTimestampTable) ? getTimeSort($dest_table) : null;
+        // extract timestamp column name in a variable for later use if this is a timestamp table
+        if ($isTimestampTable) {
+            $timestampColumn = $sort[0]["fieldName"];
+            $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+        }
         if (!$targetedExecution || $rdsTargeted) {
             // $rdsSearch = ($isTimestampTable) ? $search : prepareSearch($rds, $daysOldSet, $daysOffset, $last_update, $dest_table, $sourceSearchQuery[$source_table] ?? null);
             $rdsSearch = prepareSearch($rds, $daysOldSet, $daysOffset, $last_update ?? null, $dest_table, $sourceSearchQuery[$dest_table] ?? null);
-            
         }
         if (!$targetedExecution || $snowflakeTargeted) {
             // $snowflakeSearch = ($isTimestampTable) ? $search : prepareSearch($snow, $daysOldSet, $daysOffset, $last_update, $dest_table, $sourceSearchQuery[$source_table] ?? null);
@@ -799,7 +963,7 @@ foreach ($tablesMap as $dest_table => $source_table)
                         $rs = json_encode($nrs, true); //update the rs variable with the new data
                     }
                 } else {
-                    $rs_array = json_decode($rs ?? '');
+                    $rs_array = json_decode($rs ?? '', true);
                 }
 
                 $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
@@ -808,6 +972,27 @@ foreach ($tablesMap as $dest_table => $source_table)
                     $update_res[] = (count((array)$rs_array) > 0)  ? $rds->updateTable($rs, $dest_table, $primaryKey) : [0, 0, 0];
                     $rdsTimeLapse[$dest_table] = (!empty($rdsTimeLapse[$dest_table])) ? $rdsTimeLapse[$dest_table] : 0;
                     $rdsTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+                    $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                    $mappedTimestampColumn = null;
+                    if ($isTimestampTable) {
+                        $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                    } else {
+                        foreach ($validTimestampColumns as $timestampColumn) {
+                            if (array_key_exists($timestampColumn, $column_map)) {
+                                $mappedTimestampColumn = $column_map[$timestampColumn];
+                                break;
+                            }
+                        }
+                    }
+                    if (!empty($mappedTimestampColumn)) {
+                        $rdsLastModifiedTimestamp[$dest_table] = date_format(
+                            date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                            'Y-m-d H:i:s'
+                        ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                        ?? date('Y-m-d H:i:s'); // fallback to current date
+                    } else {
+                        $rdsLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                    }
                 }
                 if ((!$targetedExecution || $snowflakeTargeted) && (count((array)$rs_array) > 0)) {
                     $begin = microtime(true);
@@ -816,27 +1001,62 @@ foreach ($tablesMap as $dest_table => $source_table)
     
                     $snowflakeAffectedRows[$dest_table] += (count((array)$rs_array) > 0) ? $snow->updateTable($rs, $dest_table, $primaryKey) : 0;
                     $snowflakeTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+
+                    $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                    $mappedTimestampColumn = null;
+                    if ($isTimestampTable) {
+                        $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                    } else {
+                        foreach ($validTimestampColumns as $timestampColumn) {
+                            if (array_key_exists($timestampColumn, $column_map)) {
+                                $mappedTimestampColumn = $column_map[$timestampColumn];
+                                break;
+                            }
+                        }
+                    }
+                    if (!empty($mappedTimestampColumn)) {
+                        $snowLastModifiedTimestamp[$dest_table] = date_format(
+                            date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                            'Y-m-d H:i:s'
+                        ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                        ?? date('Y-m-d H:i:s'); // fallback to current date
+                    } else {
+                        $snowLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                    }
                 }
                 $offset += $limit;
                 $fquery->offset = $offset;
             } while (count((array)$rs_array) > 0);
     
-            if ($isTimestampTable) {
-                if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable && !$daysOldSet) {
-                    // $rds->updateLastSyncedTimestamp($dest_table, $lastSyncedTimestamp);
-                    $rds->updateLastSyncedTimestamp($dest_table, $rds->getOffsetDatetime());
-                    $rdsLastModified[$dest_table] = $rds->getOffsetDatetime();
-                }
-        
-                if ((!$targetedExecution || $snowflakeTargeted) && $isTimestampTable && !$daysOldSet) {
-                    // $snow->updateLastSyncedTimestamp($dest_table, $lastSyncedTimestamp);
-                    $snow->updateLastSyncedTimestamp($dest_table, $snow->getOffsetDatetime());
-                    $snowLastModified[$dest_table] = $snow->getOffsetDatetime();
+            // if ($isTimestampTable) {
+                // if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable && !$daysOldSet) {
+                // if ((!$targetedExecution || $rdsTargeted) && !$daysOldSet) {
+            if ((!$targetedExecution || $rdsTargeted)) {
+                // update etl_log table for RDS
+                if (isset($rdsTimeLapse[$dest_table]) && $rdsTimeLapse[$dest_table] > 0) {
+                    $logRecord = [$dest_table, sumRes($update_res)];
+                    rdsEtlLogUpdate($rds, $logRecord, $rdsTimeLapse[$dest_table], $rdsLastModifiedTimestamp[$dest_table]);
+                    if (!isset($log) || !is_array($log)) {
+                        $log = [];
+                    }
+                    $log[] = $logRecord;
+                    $source_list[$source_table] = $dest_table . ":" . array_sum(sumRes($update_res));
                 }
             }
+
+            // if ((!$targetedExecution || $snowflakeTargeted) && $isTimestampTable && !$daysOldSet) {
+            // if ((!$targetedExecution || $snowflakeTargeted) && !$daysOldSet) {
+            if ((!$targetedExecution || $snowflakeTargeted)) {
+                // Snowflake Logs
+                if (isset($snowflakeTimeLapse[$dest_table]) && $snowflakeTimeLapse[$dest_table] > 0) {
+                    if ($snowflakeAffectedRows[$dest_table] > 0) {
+                        $logRecord = [$dest_table => $snowflakeAffectedRows[$dest_table]];
+                        snowEtlLogUpdate($snow, $logRecord, $snowflakeTimeLapse[$dest_table], $snowLastModifiedTimestamp[$dest_table]);
+                    }
+                }
+            }
+            // }
     
-            $source_list[$source_table] = $dest_table . ":" . count((array)$rs_array);
-            $log[] = [$dest_table, sumRes($update_res)];
             //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
             unset($fquery);
         } else {
@@ -864,7 +1084,7 @@ foreach ($tablesMap as $dest_table => $source_table)
                             $rs = json_encode($nrs, true); //update the rs variable with the new data
                         }
                     } else {
-                        $rs_array = json_decode($rs ?? '');
+                        $rs_array = json_decode($rs ?? '', true);
                     }
                     $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
                     if ((!$targetedExecution || $rdsTargeted) && (count((array)$rs_array) > 0)) {
@@ -872,19 +1092,44 @@ foreach ($tablesMap as $dest_table => $source_table)
                         $update_res[] = (count((array)$rs_array) > 0)  ? $rds->updateTable($rs, $dest_table, $primaryKey) : [0, 0, 0];
                         $rdsTimeLapse[$dest_table] = (!empty($rdsTimeLapse[$dest_table])) ? $rdsTimeLapse[$dest_table] : 0;
                         $rdsTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+                        $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                        $mappedTimestampColumn = null;
+                        if ($isTimestampTable) {
+                            $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                        } else {
+                            foreach ($validTimestampColumns as $timestampColumn) {
+                                if (array_key_exists($timestampColumn, $column_map)) {
+                                    $mappedTimestampColumn = $column_map[$timestampColumn];
+                                    break;
+                                }
+                            }
+                        }
+                        if (!empty($mappedTimestampColumn)) {
+                            $rdsLastModifiedTimestamp[$dest_table] = date_format(
+                                date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                                'Y-m-d H:i:s'
+                            ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                            ?? date('Y-m-d H:i:s'); // fallback to current date
+                        } else {
+                            $rdsLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                        }
                     }
                     $offset += $limit;
                     $fquery->offset = $offset;
                 } while (count((array)$rs_array) > 0);
     
-                if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable && !$daysOldSet) {
-                    // $rds->updateLastSyncedTimestamp($dest_table, $lastSyncedTimestamp);
-                    $rds->updateLastSyncedTimestamp($dest_table, $rds->getOffsetDatetime());
-                    $rdsLastModified[$dest_table] = $rds->getOffsetDatetime();
+                // if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable) {
+                if ((!$targetedExecution || $rdsTargeted)) {
+                    if (isset($rdsTimeLapse[$dest_table]) && $rdsTimeLapse[$dest_table] > 0) {
+                        $logRecord = [$dest_table, sumRes($update_res)];
+                        rdsEtlLogUpdate($rds, $logRecord, $rdsTimeLapse[$dest_table], $rdsLastModifiedTimestamp[$dest_table]);
+                        if (!isset($log) || !is_array($log)) {
+                            $log = [];
+                        }
+                        $log[] = $logRecord;
+                        $source_list[$source_table] = $dest_table . ":" . count((array)$rs_array);
+                    }
                 }
-    
-                $source_list[$source_table] = $dest_table . ":" . count((array)$rs_array);
-                $log[] = [$dest_table, sumRes($update_res)];
                 //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
                 unset($fquery);
             }
@@ -912,7 +1157,7 @@ foreach ($tablesMap as $dest_table => $source_table)
                             $rs = json_encode($nrs, true); //update the rs variable with the new data
                         }
                     } else {
-                        $rs_array = json_decode($rs ?? '');
+                        $rs_array = json_decode($rs ?? '', true);
                     }
                     $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
                     if ((!$targetedExecution || $snowflakeTargeted) && (count((array)$rs_array) > 0)) {
@@ -922,19 +1167,42 @@ foreach ($tablesMap as $dest_table => $source_table)
     
                         $snowflakeAffectedRows[$dest_table] += (count((array)$rs_array) > 0) ? $snow->updateTable($rs, $dest_table, $primaryKey) : 0;
                         $snowflakeTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+
+                        $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                        $mappedTimestampColumn = null;
+                        if ($isTimestampTable) {
+                            $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                        } else {
+                            foreach ($validTimestampColumns as $timestampColumn) {
+                                if (array_key_exists($timestampColumn, $column_map)) {
+                                    $mappedTimestampColumn = $column_map[$timestampColumn];
+                                    break;
+                                }
+                            }
+                        }
+                        if (!empty($mappedTimestampColumn)) {
+                            $snowLastModifiedTimestamp[$dest_table] = date_format(
+                                date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                                'Y-m-d H:i:s'
+                            ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                            ?? date('Y-m-d H:i:s'); // fallback to current date
+                        } else {
+                            $snowLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                        }
                     }
                     $offset += $limit;
                     $fquery->offset = $offset;
                 } while (count((array)$rs_array) > 0);
     
-                if ((!$targetedExecution || $snowflakeTargeted) && $isTimestampTable && !$daysOldSet) {
-                    // $snow->updateLastSyncedTimestamp($dest_table, $lastSyncedTimestamp);
-                    $snow->updateLastSyncedTimestamp($dest_table, $snow->getOffsetDatetime());
-                    $snowLastModified[$dest_table] = $snow->getOffsetDatetime();
+                if ((!$targetedExecution || $snowflakeTargeted)) {
+                    // Snowflake Logs
+                    if (isset($snowflakeTimeLapse[$dest_table]) && $snowflakeTimeLapse[$dest_table] > 0) {
+                        if ($snowflakeAffectedRows[$dest_table] > 0) {
+                            $logRecord = [$dest_table => $snowflakeAffectedRows[$dest_table]];
+                            snowEtlLogUpdate($snow, $logRecord, $snowflakeTimeLapse[$dest_table], $snowLastModifiedTimestamp[$dest_table]);
+                        }
+                    }
                 }
-    
-                $source_list[$source_table] = $dest_table . ":" . count((array)$rs_array);
-                $log[] = [$dest_table, sumRes($update_res)];
                 //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
                 unset($fquery);
             }
@@ -945,7 +1213,7 @@ foreach ($tablesMap as $dest_table => $source_table)
 // ********************* end of tables to sync ********************
 
 
-// ************* log all the changes to etl_log table *************
+// ************* Display script log *************
 
 $endtime = microtime(true);
 $timediff = number_format($endtime - $starttime, 2);
@@ -953,63 +1221,26 @@ $timediff = number_format($endtime - $starttime, 2);
 // $update_date = date_create($last_update ?? );
 // $last_update_formatted =   date_format($update_date, 'Y-m-d');
 
-$dest_table = "etl_log";
-$primaryKey = $primaryKeyPairs[$dest_table];
-$records = [];
-
-$nochange_records = 0;
-$change_records = 0;
-$add_records  = 0;
 if (!$targetedExecution || $rdsTargeted) {
-    foreach ($log as $res) {
-        // echo '$res[0] = ' . $res[0];
-        $update_date = isset($laste_update) ?
-            date_create_from_format("m/d/Y H:i:s", $last_update) :
-            date_create_from_format("Y-m-d H:i:s", $rdsLastModified[$res[0]]);
-        $last_update_formatted = date_format($update_date, 'Y-m-d');
-        $record = [];
-        $record["data_table"] = $res[0];
-        $record["records_modified"] =  $res[1][2];
-        $record["records_added"] =  $res[1][1];
-        $record["records_unchanged"] =  $res[1][0];
-        $record["date_modified"] = $last_update_formatted;
-        $record["date_time"] = date("Y-m-d H:i:s");
-        //  $record["timelapse"] = $timediff;
-        $record["timelapse"] = $rdsTimeLapse[$record["data_table"]] ?? 0;
-        $records[] = $record;
-        $nochange_records += $res[1][0];
-        $change_records += $res[1][2];
-        $add_records  += $res[1][1];
-    }
+    //if any records were updated in RDS
+    if (isset($log) && is_array($log) && isset($source_list)) {
+        $nochange_records = 0;
+        $change_records = 0;
+        $add_records  = 0;
 
-    $total_records = ($nochange_records + $change_records + $add_records);
-
-    $source_log = json_encode($source_list, true);
-
-    if ($total_records > 0) {
-
-        $json_log = json_encode($records, true);
-
-
-        // update the etl_log table if logging is turned on
-
-        if ($logging) {
-            $added = $rds->updateTable($json_log, $dest_table, $primaryKey);
-            //$logGroupName = 'data-warehouse';
-            //$logStreamName = date('Y-m-d');
-            //$cloudWatchLogger = new CloudWatchLogger($logGroupName, $logStreamName);
-            //$cloudWatchLogger->log($json_log);
+        foreach ($log as $res) {
+            $nochange_records += $res[1][0];
+            $change_records += $res[1][2];
+            $add_records  += $res[1][1];
         }
 
-        $prettySourceLog =  implode("\n", json_decode($source_log, true));
-        //  print_r($added);
-        //  print_r($json_log);
-        if (isset($last_update)) {
-            print_r("\n");
-            print_r("date_modified: >" . $last_update_formatted);
-        }
+        $prettySourceLog =  implode("\n", json_decode(json_encode($source_list), true));
+
+        // since this has to be linked with each table's last modified date, we're skipping it due to an overload of information
+        // print_r("\n");
+        // print_r("date_modified: >" . ($rdsLastModifiedTimestamp[$dest_table] ?? $last_update));
         print_r("\n");
-        print_r("RDS time elapsed in seconds: ");
+        print_r("RDS time elapsed in seconds: (" . array_sum($rdsTimeLapse) . " s)");
         print_r("\n");
         print_r($rdsTimeLapse);
         print_r("\n");
@@ -1018,10 +1249,12 @@ if (!$targetedExecution || $rdsTargeted) {
         print_r("records updated: " .  $change_records);
         print_r("\n");
         print_r("records added: " .  $add_records);
-        // print_r("\n\n");
-        // print_r("data_lineage: " . $prettySourceLog);
+        print_r("\n\n");
+        print_r("data_lineage: " . $prettySourceLog);
     } else {
-        print_r("no RDS records added for " . $last_update_formatted);
+        // print_r("no RDS records added for " . ($rdsLastModifiedTimestamp[$dest_table] ?? $last_update));
+        // Modifying display message, as this portion will explode with information if all tables are being synced
+        print_r("no RDS records processed" . (isset($last_update) ? "for - " . $last_update : ''));
     }
 }
 
@@ -1030,36 +1263,10 @@ if (!$targetedExecution || $snowflakeTargeted) {
     $totalAffectedRecords = array_sum($snowflakeAffectedRows);
     if ($totalAffectedRecords > 0) {
         $source_log = json_encode($snowflakeAffectedRows, true);
-        foreach ($snowflakeAffectedRows as $table => $affectedRows) {
-            // $update_date = date_create($last_update ?? $snowLastModified[$table]);
-            $update_date = isset($laste_update) ?
-                date_create_from_format("m/d/Y H:i:s", $last_update) :
-                date_create_from_format("Y-m-d H:i:s", $snowLastModified[$table]);
-            $last_update_formatted =   date_format($update_date, 'Y-m-d');
-            $snowflakeRecord = [];
-            $snowflakeRecord["data_table"] = $table;
-            /* Unlike MySQL, even in the case of an update 
-              where nothing is changed, snowflake returns it as an affected Row
-              So, we can't track unchanged records separately.
-              Therefore, we're only recording the affected rows returned by snowflake.
-              */
-            $snowflakeRecord["affected_rows"] =  $affectedRows;
-            $snowflakeRecord["date_modified"] = $last_update_formatted;
-            $snowflakeRecord["date_time"] = date("Y-m-d H:i:s");
-            // $snowflakeRecord["timelapse"] = (int)array_sum($snowflakeTimeLapse); //this is actually the total timelapse of the script, not just snowflake
-            $snowflakeRecord["timelapse"] = (int)$snowflakeTimeLapse[$table]; //this is the total timelapse for the particular table (including multiple iterations)
-            $snowflakeRecords[] = $snowflakeRecord;
-        }
-
-        if ($logging) {
-            $json_log = json_encode($snowflakeRecords, true);
-            $added = $snow->updateTable($json_log, $dest_table, $primaryKey, true);
-        }
-
         $prettySourceLog =  implode("\n", json_decode($source_log, true));
         if (isset($last_update)) {
             echo PHP_EOL;
-            print_r("date_modified: >" . $last_update_formatted);
+            print_r("date_modified: >" . $last_update);
         }
         echo PHP_EOL;
         print_r("Snowflake time elapsed in seconds: (" . array_sum($snowflakeTimeLapse) . " s)");
@@ -1071,12 +1278,13 @@ if (!$targetedExecution || $snowflakeTargeted) {
         print_r($snowflakeAffectedRows);
         echo PHP_EOL;
         print_r("Total Snowflake records affected: " .  $totalAffectedRecords);
+        // echo PHP_EOL;
+        // print_r("data_lineage: " . $prettySourceLog);
+    } else {
         echo PHP_EOL;
-        print_r("data_lineage: " . $prettySourceLog);
+        // print_r("No Snowflake Records affected - " . ($last_update_formatted ?? ''));
+        print_r("No Snowflake Records affected" . (isset($last_update) ? "for - " . $last_update : ''));
     }
-} else {
-    echo PHP_EOL;
-    print_r("No Snowflake Records affected - " . $last_update_formatted);
 }
 
 print_r("\n");

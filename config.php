@@ -34,6 +34,8 @@ $config = [
     'fm_db'   => $_ENV['FM_DB_NAME'],
     'X-FM-Server-Version' => $_ENV['FM_SERVER_VERSION'],
     'fm_host' => $_ENV['FM_HOST'],
+    'fm_user' => $_ENV['FM_USER'] ?? 'realOne',
+    'fm_password' => $_ENV['FM_PASSWORD'] ?? 'realOne@123',
     'aws' => [
         'region'  => $_ENV['AWS_REGION'],
         'version' => $_ENV['AWS_REGION'],
@@ -52,10 +54,10 @@ $config = [
         'insertChunkSize' => $_ENV['SNOWFLAKE_INSERT_CHUNK_SIZE'],
     ],
     'mock' => [
-        'host' => 'localhost',
-        'database' => 'datawarehouse',
-        'username' => 'root',
-        'password' => '',
-        'port' => 3306,
+        'host' => $_ENV['FM_MOCK_HOST'] ?? 'localhost',
+        'database' => $_ENV['FM_MOCK_DATABASE'] ?? 'datawarehouse',
+        'username' => $_ENV['FM_MOCK_USER'] ?? 'root',
+        'password' => $_ENV['FM_MOCK_PASSWORD'] ?? '',
+        'port' => $_ENV['FM_MOCK_PORT'] ?? 3306,
       ]
 ];

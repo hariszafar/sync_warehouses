@@ -19,7 +19,7 @@ class SnowflakeLoader implements Loader {
     public $conn = null;
     public $affectedRows = 0;
     public $table;
-    public $syncTableName = "sync_table";
+    public $syncTableName = "etl_log";
     public $createTableQuery = ""; //variable to hold the create table query
     public $temporaryTable = null;
     public $temporaryTableQuery = "";
@@ -588,8 +588,11 @@ Affected Rows: " . $affectedRows . "
 
             // Add the missing parameter at the end of the values pair
             if (!$primaryKeyFound && $this->tableKeyIsAutoIncrement) {
-                $placeholdersForParams .= "?";
-                $paramsForBinding[] = 0;
+                // if the the primary key column is in the '$insertColumns' array, then add a placeholder for it
+                if (in_array($this->primaryKeyColumn, $insertColumns)) {
+                    $placeholdersForParams .= "?";
+                    $paramsForBinding[] = 0;
+                }
             }
 
             //strip the trailing comma after the last placeholder & close the parenthesis
@@ -744,6 +747,40 @@ Affected Rows: " . $affectedRows . "
             array_push($this->columns, strtoupper($columnKey));
         }
 
+        // Get list of all fields from the entire $this->rawData object
+		$incomingColumns = [];
+		$rawData = json_decode($this->rawData, true);
+		foreach ($rawData as $record) {
+			$incomingColumns = array_merge($incomingColumns, array_keys($record));
+		}
+        $incomingColumns = array_map("strtoupper", $incomingColumns);
+		$incomingColumns = array_unique($incomingColumns);
+
+		// check if the incoming columns are different from the existing columns
+		// if they are, then we need to update the table
+		$diff = array_diff($incomingColumns, array_map("strtoupper", array_keys($this->columns)));
+		if (!empty($diff)) {
+			// instead of adding the new columns as TEXT directly, let's search for the data type of the new columns
+			// let's find the first record that has the new column and get the data type
+			foreach ($diff as $newColumn) {
+				$firstRecordWithNewColumn = null;
+				foreach ($rawData as $record) {
+					if (array_key_exists($newColumn, $record)) {
+						$firstRecordWithNewColumn = $record;
+						break;
+					}
+				}
+                $newColumn = strtoupper($newColumn);
+                $this->columns[] = $newColumn;
+				if ($firstRecordWithNewColumn) {
+					$this->columnDataTypes[$newColumn] = $this->getSnowflakeDataType($firstRecordWithNewColumn[$newColumn]);
+				} else {
+					// If the new column is not found in any of the records, default to TEXT
+					$this->columnDataTypes[$newColumn] = 'TEXT';
+				}
+			}
+		}
+
         // $this->verboseLog("Extracting columns from incoming data - END (" . number_format((microtime(true) - $start), 4) . "s)" . PHP_EOL);
     }
 
@@ -759,7 +796,8 @@ Affected Rows: " . $affectedRows . "
         $this->createTableQuery = "CREATE TABLE IF NOT EXISTS " . $this->table . " (";
 
         // Make sure no column has been repeated twice, this will mess up the create table query
-        array_unique($this->columns);
+        $this->columns = array_map("strtoupper", $this->columns);
+        $this->columns = array_unique($this->columns);
         $primaryKeyFound = false;
         foreach($this->columns as $column) {
             if (!empty($primaryKeyColumn) && (strtoupper($column) == strtoupper($primaryKeyColumn))) {
@@ -788,9 +826,8 @@ Affected Rows: " . $affectedRows . "
     public function generateTemporaryTableQuery(): void
     {
         // A Quick Hack to create the temporary table based on the actual target table if it has been created.
-        // $this->temporaryTableQuery = "CREATE  TABLE " . $this->getTemporaryTableName() . " AS " . 
-        //     "(SELECT * FROM " . $this->table . " WHERE 1=0)";
-        $this->temporaryTableQuery = "CREATE TEMPORARY TABLE " . $this->getTemporaryTableName() . " LIKE " .  $this->table;
+        $this->temporaryTableQuery = "CREATE TEMPORARY TABLE " . $this->getTemporaryTableName()
+            . " LIKE " .  $this->table;
     }
 
     /**
@@ -806,7 +843,7 @@ Affected Rows: " . $affectedRows . "
             $this->generateCreateTableIfNotExistsQuery($primaryKeyColumn);
 
             // $this->verboseLog("Create Table '" . $this->table . "' if not exists - BEGIN");
-            
+
             $this->executeQuery($this->getCreateTableQuery());
 
             // $this->verboseLog(PHP_EOL . $this->getCreateTableQuery() . PHP_EOL);
@@ -836,25 +873,73 @@ Affected Rows: " . $affectedRows . "
             $result = $this->executeQuery($query);
             if (!empty($result)) {
                 //flush the previously stored columns reference, we're getting them from the target table on Snowflake
-                $this->cleanTableColumns();
+                // $this->cleanTableColumns();
+
+                $existingTableColumns = [];
                 foreach($result as $fieldInfo) {
-                    $this->columns[] = $fieldInfo['name'];
+                    // $this->columns[] = $fieldInfo['name'];
+                    $existingTableColumns[] = $fieldInfo['name'];
                     if ( !empty($fieldInfo['primary key'] && strtoupper($fieldInfo['primary key']) == 'Y')) {
                         $this->primaryKeyColumn = $fieldInfo['name'];
                     }
                     if (
                         !empty($fieldInfo['default']) 
-                        && stripos(strtolower($fieldInfo['default']),'IDENTITY') !== false
+                        && stripos(strtoupper($fieldInfo['default']),'IDENTITY') !== false
                     ) {
                         $this->tableKeyIsAutoIncrement = true;
                     }
                 }
             }
 
+            // Compare the columns from the incoming data with the columns from the target table,
+            // and update the target table schema if necessary
+            $this->updateTargetTableColumns($existingTableColumns);
+
             // $this->verboseLog(print_r($this->columns, true));
             // $this->verboseLog(PHP_EOL . "Get Table Columns from Snowflake for '" . $this->table . "' - END (" .
             //     number_format((microtime(true) - $start), 4) . "s)" . PHP_EOL);
         } catch (\Throwable $th) {
+            throw $th;
+        }
+    }
+
+    /**
+	 * Update the columns (schema) of the target table if the incoming data has new columns.
+	 * This method assumes that $this->columns has already been populated with the columns from the incoming data, and will contain any new records
+	 *
+	 * @param array $existingTableColumns The existing columns of the target table.
+	 * @return void
+	 */
+	public function updateTargetTableColumns(array $existingTableColumns): void
+    {
+        $alterQuery = "";
+        try {
+            // $start = microtime(true);
+            // $this->verboseLog("Update Target Table Columns - BEGIN");
+
+            // Get the columns that are in the incoming data but not in the target table
+            $diff = array_diff(array_values($this->columns), array_values($existingTableColumns));
+
+            if (!empty($diff)) {
+                // $this->columns already contained the new columns along with their data types, so we can use it to update the target table schema
+                // Create an Alter query to add the new columns to the target table, allowing new columns to be NULL
+                $alterQuery .= "ALTER TABLE {$this->table} ADD COLUMN ";
+                $alterQuery .= implode(", ", array_map(function ($columnName) {
+                    return " $columnName " . $this->columnDataTypes[$columnName] . " NULL ";
+                }, $diff));
+
+                // Execute the alter query
+                $this->executeQuery($alterQuery);
+                // log status of alter query
+            }
+
+            // $this->verboseLog("Update Target Table Columns - END (" . number_format((microtime(true) - $start), 4) . " s)");
+        } catch (\Throwable $th) {
+            // log alter query error, along with the attempted alter query
+            $this->log($alterQuery, false,
+                "Error encountered while attempting to alter the target table (" . $this->table . "). "
+                . $th->getMessage()
+            );
             throw $th;
         }
     }
@@ -905,7 +990,7 @@ Affected Rows: " . $affectedRows . "
     }
 
     /**
-     * Get the last synced timestamp for a specific table.
+     * Get the last synced timestamp for a specific table in 'm/d/Y H:i:s' format to mock the behavior of the FileMaker API.
      *
      * @param string $table The name of the table.
      * @return string|null The last synced timestamp, or null if no record was found.
@@ -913,19 +998,27 @@ Affected Rows: " . $affectedRows . "
     public function getLastSyncedTimestamp($table)
     {
         // Make sure the sync_status table exists, and create it if it doesn't
-        $this->ensureSyncStatusTableExists();
-    
+        if (!$this->ensureSyncStatusTableExists()) {
+			return null;
+		}
         // Prepare the SQL query
-        $sql = "SELECT last_synced_timestamp FROM " . $this->getSyncTableName() . " WHERE table_name = ?";
+        $sql = "SELECT date_modified FROM " . $this->getSyncTableName()
+            . " WHERE data_table = ? ORDER BY date_time DESC LIMIT 1";
     
         // Execute the query and fetch the result
         $stmt = $this->conn->prepare($sql);
         $stmt->execute([$table]);
         $result = ($stmt->rowCount() > 0) ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 
-        
+        $lastSyncedTimestamp = null;
+        if (isset($result) && isset($result[0]['DATE_MODIFIED'])) {
+			// Convert the timestamp to a string in 'm/d/Y H:i:s' format, and take the date one day back
+			// $lastSyncedTimestamp = date('m/d/Y H:i:s', strtotime($result[0]['DATE_MODIFIED']));
+			$lastSyncedTimestamp = date('m/d/Y 00:00:00', strtotime($result[0]['DATE_MODIFIED'] . ' -1 day'));
+		}
+
         // Return the last synced timestamp, or null if no record was found
-        return $result ? $result[0]['LAST_SYNCED_TIMESTAMP'] : null;
+        return $lastSyncedTimestamp;
     }
 
     /**
@@ -944,17 +1037,21 @@ Affected Rows: " . $affectedRows . "
 
         // If the sync_status table doesn't exist, create it
         if (empty($result) || count($result) == 0) {
-            $sql = "
-                CREATE TABLE " . $this->getSyncTableName() . " (
-                    table_name VARCHAR(255) NOT NULL,
-                    last_synced_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (table_name)
-                )
-            ";
+            // $sql = "
+            //     CREATE TABLE " . $this->getSyncTableName() . " (
+            //         table_name VARCHAR(255) NOT NULL,
+            //         last_synced_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            //         PRIMARY KEY (table_name)
+            //     )
+            // ";
 
-            // Execute the query
-            $this->executeQuery($sql);
+            // // Execute the query
+            // $this->executeQuery($sql);
+
+			// We're not creating the table now, as it will be created when the first log record is inserted
+            return false;
         }
+        return true;
     }
 
     /**
@@ -991,6 +1088,23 @@ Affected Rows: " . $affectedRows . "
         $stmt = $this->conn->prepare($sql);
         // $stmt->execute([$table, $timestamp, $timestamp]);
         $stmt->execute([$table, $timestamp]);
+    }
+
+    /**
+     * Initialize the sync table
+     *
+     * @return void
+     */
+    public function initializeSyncTable()
+    {
+        // Make sure the sync_status table exists, and create it if it doesn't
+        $this->ensureSyncStatusTableExists();
+
+        // Prepare the SQL query
+        $sql = "TRUNCATE TABLE " . $this->getSyncTableName();
+
+        // Execute the query
+        $this->executeQuery($sql);
     }
 
     /**
