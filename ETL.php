@@ -41,7 +41,7 @@ $targets = [];
 if (defined('PHP_SAPI') && 'cli' === PHP_SAPI) {
     $GLOBALS['_SESSION'] = [];
     // get options eg ETL.php --type therapist
-    $options = getopt(null, ['tables:','days_old:','logging_off:', 'target:', 'verbose:', 'ignore:', 'debug_logging:']); // returns an array
+    $options = getopt(null ?? '', ['tables:','days_old:','logging_off:', 'target:', 'verbose:', 'ignore:', 'debug_logging:']); // returns an array
   //var_dump($options);
   //  exit;
 }

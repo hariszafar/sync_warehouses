@@ -54,6 +54,7 @@ class  FM_extract{
 
   public function __construct($db,$host,$table,$dest_table,$search,$limit,$offset,$sort,$column_map)
   {
+      global $config;
       $this->db = $db ;
       $this->host = $host;
       $this->table = $table;
@@ -70,7 +71,7 @@ class  FM_extract{
           'fmdb_host' => $this->host // private network ip for stage server
       ]);
 
-      if (!$this->dbse->login('webconnect', 'snQTX6JNPh4eTnmn')) {
+      if (!$this->dbse->login($config['fm_user'] ?? 'webconnect', $config['fm_password'] ?? 'snQTX6JNPh4eTnmn')) {
          var_dump($host. " Error logging in: ".$db, $this->dbse->getLastError());
         exit;
       }
@@ -99,7 +100,8 @@ class  FM_extract{
 
         $norecords = false;
 
-        $layout = $table."_data_warehouse";
+        $layout = $table."_data_warehouse"; //TODO: this is a convention for the layout name in the production FM
+        // $layout = $table;
 
 
         $query = [];
@@ -111,7 +113,7 @@ class  FM_extract{
         }
 
         // sorting wasn't even implemented before - added code here to add sorting to the query
-        if ($sort) {
+        if (is_array($sort) && !empty($sort)) {
           $query['sort'] = $sort;
         }
 

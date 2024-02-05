@@ -6,6 +6,7 @@ trait LogTrait
 {
     public $logFilePath = null;
     public $queryLogsEnabled = false;
+    public $verboseLogLevel = 1;
     
     public $lastQuery = '';
     public $lastQueryParams = [];
@@ -37,6 +38,27 @@ trait LogTrait
     public function isVerboseExecutionLoggingEnabled(): bool
     {
         return $this->verboseLogsEnabled;
+    }
+
+    /**
+     * Set the Verbose Log Level
+     *
+     * @param int $level The level of verbose logging to be enabled. The higher the level, the more verbose the logging will be.
+     * @return void
+     */
+    public function setVerboseLogLevel(int $level = 1): void
+    {
+        $this->verboseLogLevel = $level;
+    }
+
+    /**
+     * Get the Verbose Log Level
+     *
+     * @return int The level of verbose logging to be enabled. The higher the level, the more verbose the logging will be.
+     */
+    public function getVerboseLogLevel(): int
+    {
+        return $this->verboseLogLevel;
     }
 
     /**
