@@ -32,6 +32,8 @@ $config = [
     'rdsInsertChunkSize' => $_ENV['RDS_INSERT_CHUNK_SIZE'],
 
     'fm_db'   => $_ENV['FM_DB_NAME'],
+    'fm_tables_prefix'   => $_ENV['FM_TABLES_PREFIX'],
+    'fm_tables_suffix'   => $_ENV['FM_TABLES_SUFFIX'] ?? "_data_warehouse",
     'X-FM-Server-Version' => $_ENV['FM_SERVER_VERSION'],
     'fm_host' => $_ENV['FM_HOST'],
     'fm_user' => $_ENV['FM_USER'] ?? 'realOne',
@@ -61,3 +63,7 @@ $config = [
         'port' => $_ENV['FM_MOCK_PORT'] ?? 3306,
       ]
 ];
+
+if (!defined('DATETIME_SEARCH_PLACEHOLDER')) {
+    define("DATETIME_SEARCH_PLACEHOLDER", "DATETIME_SEARCH");
+}

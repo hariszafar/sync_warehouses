@@ -19,6 +19,8 @@ class SnowflakeLoader implements Loader {
     public $conn = null;
     public $affectedRows = 0;
     public $table;
+    public $backupTableName = '';
+    public $tableCreationStatus = '';
     public $syncTableName = "etl_log";
     public $createTableQuery = ""; //variable to hold the create table query
     public $temporaryTable = null;
@@ -27,6 +29,9 @@ class SnowflakeLoader implements Loader {
     public $columns = [];
     public $primaryKeyColumn = null;
     public $columnDataTypes = []; 
+
+    public $errorInfo = null;
+    public $errorMessage = null;
 
     public $tableKeyIsAutoIncrement = false;
 
@@ -253,6 +258,8 @@ class SnowflakeLoader implements Loader {
     {
         $this->lastQuery = $query;
         $this->lastQueryParams = $parameters;
+        $this->errorInfo = null;
+        $this->errorMessage = null;
         try {
             $stmt = $this->conn->prepare($query);
     
@@ -268,8 +275,8 @@ class SnowflakeLoader implements Loader {
                 }
             } else {
                 // Query execution failed
-                $errorInfo = $stmt->errorInfo();
-                $errorMessage = isset($errorInfo[2]) ? $errorInfo[2] : 'Unknown error';
+                $this->errorInfo = $errorInfo = $stmt->errorInfo();
+                $this->errorMessage = $errorMessage = isset($errorInfo[2]) ? $errorInfo[2] : 'Unknown error';
 
                 $this->log($query, false, $errorMessage);
             }
@@ -424,7 +431,99 @@ class SnowflakeLoader implements Loader {
         $this->primaryKeyColumn = null;
     }
 
+    public function createTableSchemaFromData(string $rawData, string $table, string $primaryKeyColumn = '', bool $dropCreate = false, bool $backupPreviousTable = false): bool
+    {
+        try {
+            $start = microtime(true);
+            $this->verboseLog(PHP_EOL . "======================================" . PHP_EOL . 
+            "Snowflake - createTableSchemaFromData Process for `{$table}` - BEGIN" . PHP_EOL);
 
+            // Run cleanup processes first
+            $this->rawData = $rawData;
+
+            // Clean up properties and prepare for the new table
+            $this->backupTableName = '';
+            $this->errorInfo = null;
+            $this->errorMessage = null;
+            $this->cleanTableColumns();
+            $this->table = $table;
+            $this->primaryKeyColumn = $primaryKeyColumn;
+
+            $jsonData = json_decode($rawData,true);
+            // Following same logic as in RDS_load
+            if (!isset($table)) {
+                foreach ($jsonData[0] as $key => $value){
+                    $table = $key;
+                }
+                $jsonData = $jsonData[$table];
+            }
+
+            $this->extractTableColumnsAndDataTypes($jsonData[0]);
+
+            // Check if this table already exists in the datawarehouse
+            $tableExists = $this->tableExists($table);
+
+            if ($tableExists) {
+                // Backup the previous table if required
+                if ($backupPreviousTable) {
+                    $this->backupTable($table);
+                }
+                // Drop the table if required
+                if ($dropCreate) {
+                    $this->dropTable($table);
+                }
+            }
+
+            $this->createTargetTableIfNotExists($primaryKeyColumn);
+
+            /* 
+                We're doing this as it was noticed thatdata import was inconsistent. 
+                Data against same table was observed to have less columns, 
+                which caused temporary table to  be created with less columns, resulting in an 'invalid identifier' error.
+            */ 
+            $this->getTargetTableColumns(); // this method also updates the schema if new columns are encountered
+
+            $this->verboseLog(PHP_EOL . "Snowflake - createTableSchemaFromData Process for table {$table} - END ("
+                . number_format((microtime(true) - $start), 4) . "s)" . PHP_EOL 
+                . "======================================" . PHP_EOL . PHP_EOL);
+            return true;
+        } catch (\Throwable $th) {
+            $this->log('', false, "Exception encountered in " . __FUNCTION__ ." method. " .$th->getMessage());
+            return false;
+        }
+    }
+
+    public function tableExists(string $table): bool
+    {
+        $query = "SHOW TABLES LIKE '{$table}'";
+        $result = $this->executeQuery($query);
+        return (count($result) > 0);
+    }
+
+    public function dropTable(string $table): bool
+    {
+        $query = "DROP TABLE IF EXISTS {$table}";
+        $this->executeQuery($query);
+        
+        // check if there were any errors, and return true or false
+        return (empty($this->errorInfo) && empty($this->errorMessage));
+    }
+
+    public function backupTable(string $table): bool
+    {
+        $this->backupTableName = $table . "_backup_" . time();
+        // $query = "CREATE TABLE {$this->backupTableName} AS SELECT * FROM {$table}";
+        $query = "ALTER TABLE IF EXISTS $table RENAME TO {$this->backupTableName}";
+        $this->executeQuery($query);
+        
+        // check if there were any errors, and return true or false
+        return (empty($this->errorInfo) && empty($this->errorMessage));
+    }
+
+    public function getBackupTableName(): string
+    {
+        return $this->backupTableName;
+    }
 
     /**
      * Update the table data on Snowflake, based on incoming JSON data.
@@ -845,7 +944,7 @@ Affected Rows: " . $affectedRows . "
             // $this->verboseLog("Create Table '" . $this->table . "' if not exists - BEGIN");
 
             $this->executeQuery($this->getCreateTableQuery());
-
+            $this->tableCreationStatus = empty($this->errorInfo);
             // $this->verboseLog(PHP_EOL . $this->getCreateTableQuery() . PHP_EOL);
             // $this->verboseLog("Create Table '" . $this->table . "' if not exists - END (" . number_format((microtime(true) - $start), 4) . "s)" . PHP_EOL);
         } catch (\Throwable $th) {
