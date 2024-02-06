@@ -1,8 +1,9 @@
 <?php
 
 /********************************************
-Modified script by Ben Marchbanks ben@dme-cg.com or ben@alqemy
- Phone: 540 760 4104
+Script modified by Haris Zafar
+- Implemented DRY principles
+based off of ETL.php created by Ben Marchbanks
 
 This script performs a query in FileMaker Database for each table in the Data Warehouse.
 It queries for modified records since the last sync and transforms then loads
@@ -191,7 +192,9 @@ $primaryKeyPairs = [
     'users' => 'recordId'
 ];
 
-define("DATETIME_SEARCH_PLACEHOLDER", "DATETIME_SEARCH");
+if (!defined('DATETIME_SEARCH_PLACEHOLDER')) {
+    define("DATETIME_SEARCH_PLACEHOLDER", "DATETIME_SEARCH");
+}
 // Map the source table names (keys) to the search query (values)
 $sourceSearchQuery = [
     'accesslog' => [

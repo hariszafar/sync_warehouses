@@ -43,6 +43,7 @@ class  FM_extract{
   public $db;
   public $host;
   public $table;
+  public $tablesSuffix = "";
   public $dest_table; // this property is never even used in the class/script
   public $sort;
   public $search;
@@ -70,6 +71,7 @@ class  FM_extract{
           'fmdb_database' => $this->db,
           'fmdb_host' => $this->host // private network ip for stage server
       ]);
+      $this->tablesSuffix = $config['fm_tables_suffix'] ?? "_data_warehouse";
 
       if (!$this->dbse->login($config['fm_user'] ?? 'webconnect', $config['fm_password'] ?? 'snQTX6JNPh4eTnmn')) {
          var_dump($host. " Error logging in: ".$db, $this->dbse->getLastError());
@@ -100,7 +102,8 @@ class  FM_extract{
 
         $norecords = false;
 
-        $layout = $table."_data_warehouse"; //TODO: this is a convention for the layout name in the production FM
+        // $layout = $table."_data_warehouse"; //TODO: this is a convention for the layout name in the production FM
+        $layout = $table . $this->tablesSuffix; // Replaced with suffix from config.php (being populated from ENV vars)
         // $layout = $table;
 
 
