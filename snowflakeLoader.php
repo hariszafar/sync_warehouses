@@ -14,6 +14,8 @@ class SnowflakeLoader implements Loader {
     public $snowflakeSchema;
     public $snowflakeDatabase;
     public $snowflakeWarehouse;
+    public $snowflakeBackupDatabase;
+    public $snowflakeBackupSchema;
     
     
     public $conn = null;
@@ -64,6 +66,8 @@ class SnowflakeLoader implements Loader {
         $this->snowflakeSchema = $options['schema'] ?? SNOWFLAKE_SCHEMA;
         $this->snowflakeDatabase = $options['database'] ?? SNOWFLAKE_DATABASE;
         $this->snowflakeWarehouse = $options['warehouse'] ?? SNOWFLAKE_WAREHOUSE;
+        $this->snowflakeBackupDatabase = $options['backup_database'] ?? SNOWFLAKE_BACKUP_DATABASE;
+        $this->snowflakeBackupSchema = $options['backup_schema'] ?? SNOWFLAKE_BACKUP_SCHEMA;
         
         if (!empty($this->snowflakeAccount) && !empty($this->snowflakeUser) && !empty($this->snowflakePassword)) {
             $this->establishConnection();
@@ -468,6 +472,11 @@ class SnowflakeLoader implements Loader {
                 if ($backupPreviousTable) {
                     $this->backupTable($table);
                 }
+
+                // Switch back to the main database and schema
+                $this->useDatabase($this->snowflakeDatabase);
+                $this->useSchema($this->snowflakeSchema);
+
                 // Drop the table if required
                 if ($dropCreate) {
                     $this->dropTable($table);
@@ -511,9 +520,28 @@ class SnowflakeLoader implements Loader {
 
     public function backupTable(string $table): bool
     {
+        // Create the backup database if it does not exist
+        $this->createDatabaseIfNotExists($this->snowflakeBackupDatabase);
+        // Create the backup schema if it does not exist
+        $this->createSchemaIfNotExists($this->snowflakeBackupSchema);
+
         $this->backupTableName = $table . "_backup_" . time();
+
         // $query = "CREATE TABLE {$this->backupTableName} AS SELECT * FROM {$table}";
-        $query = "ALTER TABLE IF EXISTS $table RENAME TO {$this->backupTableName}";
+        // $query = "ALTER TABLE IF EXISTS $table RENAME TO {$this->backupTableName}";
+
+        // Create a query to backup the table into the backup schema
+        // within the backup database with the $this->backupTableName
+        $query = "CREATE TABLE "
+            . (
+                $this->snowflakeBackupDatabase . "." . $this->snowflakeBackupSchema
+                . "." . $this->backupTableName
+            ) . " AS SELECT * FROM "
+            . (
+                $this->snowflakeDatabase . "." . $this->snowflakeSchema
+                . "." . $table
+            );
+
         $this->executeQuery($query);
         
         // check if there were any errors, and return true or false
@@ -588,7 +616,7 @@ class SnowflakeLoader implements Loader {
                 $this->getTargetTableColumns();
             }
 
-// Is this supposed to be a direct insert into the target table without the MERGE command?
+            // Is this supposed to be a direct insert into the target table without the MERGE command?
             if ($insertWithoutMerge) {
                 $this->loadDataToTable($jsonData, $this->table);
                 $affectedRows = ($this->affectedRows > 0) ? $this->affectedRows : 0;
