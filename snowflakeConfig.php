@@ -30,6 +30,8 @@ if (!isset($config['snowflake']) || !isset($config['snowflake']['warehouse'])) {
 define('SNOWFLAKE_WAREHOUSE', $config['snowflake']['warehouse']);
 define('SNOWFLAKE_SCHEMA', $config['snowflake']['schema']);
 define('SNOWFLAKE_DATABASE', $config['snowflake']['database']);
+define('SNOWFLAKE_BACKUP_SCHEMA', $config['snowflake']['backup_schema']);
+define('SNOWFLAKE_BACKUP_DATABASE', $config['snowflake']['backup_database']);
 define('SNOWFLAKE_ACCOUNT', $config['snowflake']['account']);
 define('SNOWFLAKE_USER', $config['snowflake']['user']);
 define('SNOWFLAKE_PASSWORD', $config['snowflake']['password']); 
