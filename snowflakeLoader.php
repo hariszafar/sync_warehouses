@@ -274,9 +274,9 @@ class SnowflakeLoader implements Loader {
             }
     
             if ($stmt->execute()) {
-                if ($this->queryLogsEnabled && $this->isDebugLoggingEnabled()) {
-                    $this->log($query, true);
-                }
+                // if ($this->queryLogsEnabled && $this->isDebugLoggingEnabled()) {
+                //     $this->log($query, true);
+                // }
             } else {
                 // Query execution failed
                 $this->errorInfo = $errorInfo = $stmt->errorInfo();
@@ -642,9 +642,9 @@ Affected Rows: " . $affectedRows . "
 ";
 
 
-            if ($this->isDebugLoggingEnabled()) {
-                $this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
-            }
+            // if ($this->isDebugLoggingEnabled()) {
+            //     $this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
+            // }
             $this->verboseLog("Snowflake - updateTable Process for table {$table} - END (" . number_format((microtime(true) - $start), 4) . "s)" . 
                 PHP_EOL . "======================================" . PHP_EOL . PHP_EOL);
             // $this->verboseLog($logMessage);
@@ -781,14 +781,14 @@ Affected Rows: " . $affectedRows . "
                 $preparedQueryStatements[$i]->execute($preparedQueryParameters[$i]);
                 $processedRecords = (($i+1) * $this->getInsertChunkSize());
                 $processedRecords = ($processedRecords > $totalRecords) ? $totalRecords : $processedRecords;
-                $progress = ($processedRecords / $totalRecords) * 100;
+                // $progress = ($processedRecords / $totalRecords) * 100;
                 
-                $logMessage = "Successfully inserted record " . $processedRecords . "/" . $totalRecords .
-                    " (" . number_format($progress, 2) . "%) into `" . $this->getTemporaryTableName() . "`.";
+                // $logMessage = "Successfully inserted record " . $processedRecords . "/" . $totalRecords .
+                //     " (" . number_format($progress, 2) . "%) into `" . $this->getTemporaryTableName() . "`.";
                 
-                if ($this->isDebugLoggingEnabled()) {
-                    $this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
-                }
+                // if ($this->isDebugLoggingEnabled()) {
+                //     $this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
+                // }
                 // $this->verboseLog($logMessage, true);
             } catch (\PDOException $th) {
                 //throw $th;
@@ -879,6 +879,9 @@ Affected Rows: " . $affectedRows . "
 		$rawData = json_decode($this->rawData, true);
 		foreach ($rawData as $record) {
 			$incomingColumns = array_merge($incomingColumns, array_keys($record));
+            // FileMaker maps all records and returns them just like mysql does (even if they are empty),
+            // so iterating through the first record is enough to get all the columns
+            break;
 		}
         $incomingColumns = array_map("strtoupper", $incomingColumns);
 		$incomingColumns = array_unique($incomingColumns);

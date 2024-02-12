@@ -278,3 +278,66 @@ if (!function_exists('sumRes')) {
         return $res_sum;
     }
 }
+
+
+
+// TODO: This function is not used. Keep commented out for now.
+/**
+ * Retrieves the first 'last modified' timestamp of a specified destination table.
+ * This is used as the offset datetime for the next sync iteration. The returned timestamp is in the format m/d/Y H:i:s.
+ *
+ * @param string $destTable The name of the destination table.
+ * @return string|null The first modified timestamp of the destination table, or null if no records are found.
+ */
+// function getTableFirstLastModifiedTimestamp($destTable)
+// {
+//     global $db, $host, $tablesMap, $localTesting, $verboseLogLevel;
+//     $firstLastModifiedTimestamp = null;
+//     $sort = getTimeSort($destTable);
+//     if ($verboseLogLevel > 1) {
+//         echo "getTableFirstLastModifiedTimestamp() => \$sort = " . var_dump($sort) . PHP_EOL;
+//         echo PHP_EOL . "ABOUT TO EXECUTE". PHP_EOL;
+//     }
+
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [], 1, 0, ["fieldName" => $searchColumn, "sortOrder" => "ascend"], [], true);
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [], 1, 0, $sort, [], true); // extra debug parameter for mock testing
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [['modificationHostTimestamp' => '>'.'01/01/1970 00:00:00']], 1, 0, $sort, []);
+//     // $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [['modificationHostTimestamp' => '*']], 1, 0, null, []);
+
+//     $fquery = new FM_extract($db, $host, $tablesMap[$destTable], $destTable, [['modificationHostTimestamp' => '*']], 1, 0, $sort, []);
+//     $rs = $fquery->getRecordSet();
+//     // $rs = $fquery->dbse->find([], ['modificationHostTimestamp', 'Ascend'], 1, 0);
+//     // $rs = $fquery->dbse->all();
+
+
+//     if ($verboseLogLevel > 1) {
+//         echo "getTableFirstLastModifiedTimestamp() => \$rs = " . var_dump($rs) . PHP_EOL;
+//     }
+//     $rs_array = json_decode($rs ?? '', true);
+//     if (is_array($rs_array) && count($rs_array) > 0) {
+//         // $firstLastModifiedTimestamp = $rs_array[0][$sort["fieldName"]];
+//         $firstLastModifiedTimestamp = $rs_array[0][$sort[0]["fieldName"]];
+//     }
+//     if ($localTesting) {
+//         // $firstLastModifiedTimestamp = date('Y/m/d H:i:s', strtotime($firstLastModifiedTimestamp));
+//         if( strpos($firstLastModifiedTimestamp, '/') !== false) {
+//             $date = date('Y/m/d H:i:s', $firstLastModifiedTimestamp);
+//         } else {
+//             //otherwise, consider the date separator to contain dashes
+//             $date = date_create_from_format("Y-m-d H:i:s", $firstLastModifiedTimestamp);
+//         }
+//     } else {
+//         if( strpos($firstLastModifiedTimestamp, '/') !== false) {
+//             $date = date_create_from_format("m/d/Y H:i:s", $firstLastModifiedTimestamp);
+//         } else {
+//             //otherwise, consider the date separator to contain dashes
+//             $date = date_create_from_format("m-d-Y H:i:s", $firstLastModifiedTimestamp);
+//         }
+//     }
+//     // update the $date variable, and take date one day back
+//     date_sub($date, date_interval_create_from_date_string('1 day'));
+
+//     $firstLastModifiedTimestamp = date_format($date, "m/d/Y 00:00:00");
+
+//     return $firstLastModifiedTimestamp;
+// }
