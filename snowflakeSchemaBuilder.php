@@ -25,9 +25,6 @@
 // # php snowflakeSchemaBuilder.php  --drop_create=1 --backup_tables=1 --verbose=1
 
 
-$targetedExecution = false; // flag to check whether a specific script has been targeted
-$snowflakeTargeted = false; // flag to check whether snowflake has been targeted
-$rdsTargeted = false; //flag to check whether rds has been targeted
 $targets = [];
 if (defined('PHP_SAPI') && 'cli' === PHP_SAPI) {
     $GLOBALS['_SESSION'] = [];
@@ -44,13 +41,13 @@ require_once(__DIR__ . DIRECTORY_SEPARATOR . 'config.php');
 if (!$localTesting) {
     require_once(__DIR__ . DIRECTORY_SEPARATOR . 'FM_extract.php');
 } else {
+    //This is actually a fallback to a local MySQL database
     require_once(__DIR__ . DIRECTORY_SEPARATOR . 'lib' . DIRECTORY_SEPARATOR
-        . 'mock' . DIRECTORY_SEPARATOR . 'FM_extract.php'); //This is actually a fallback to a local MySQL database
+        . 'mock' . DIRECTORY_SEPARATOR . 'FM_extract.php');
 }
 
 require_once(__DIR__ . DIRECTORY_SEPARATOR . 'snowflakeLoader.php');
-$targetedExecution = true;
-$snowflakeTargeted = true;
+
 $createdTables = [];
 $backupTableNames = [];
 
