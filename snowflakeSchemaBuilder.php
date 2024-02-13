@@ -18,6 +18,7 @@
  * 'backup_tables' => a flag to backup the previous table in the datawarehouse by renaming it
  * 'local_testing' => a flag indicating the script is being run in a local testing environment,
  * which utilizes a local MySQL database as a substitute/mock for the FileMaker server
+ * 'archive_etl' => a flag to archive the ETL logs table within (the same database)
  * 
  ***********************************************/
 
@@ -30,7 +31,7 @@ if (defined('PHP_SAPI') && 'cli' === PHP_SAPI) {
     $GLOBALS['_SESSION'] = [];
     // get options eg ETL.php --type therapist - [returns an array of options]
     $options = getopt(null ?? '', ['tables:', 'logging_off:', 'verbose:',
-        'ignore:', 'debug_logging:', 'local_testing:', 'drop_create:', 'backup_tables:']);
+        'ignore:', 'debug_logging:', 'local_testing:', 'drop_create:', 'backup_tables:', 'archive_etl:']);
 } elseif (session_status() == PHP_SESSION_NONE) { // uses session to store data api token
     session_start();
     header("Access-Control-Allow-Origin: *");
@@ -71,6 +72,13 @@ if (isset($options['backup_tables']) || isset($_REQUEST['backup_tables'])) {
     $backupTables = ($backupTablesValue > 0);
 } else {
     $backupTables = false;
+}
+
+if (isset($options['archive_etl']) || isset($_REQUEST['archive_etl'])) {
+    $archiveEtlValue = (int)($options['archive_etl'] ?? $_REQUEST['archive_etl']);
+    $archiveEtl = ($archiveEtlValue > 0);
+} else {
+    $archiveEtl = false;
 }
 
 // list of tables to ignore
@@ -144,6 +152,7 @@ try {
     }
     $snow->clearLogFile(); // initialize log file
     $snow->setDebugLogging($debug_logging);
+    $snow->setArchiveSyncTableFlag($archiveEtl);
 } catch (\Throwable $th) {
     die("Error: Unable to establish connection with Snowflake. [" . $th->getCode()
         . "]: " . $th->getMessage());
@@ -223,8 +232,9 @@ foreach ($tablesMap as $dest_table => $source_table)
     }
 }
 
-// ********************* end of tables to sync ********************
+// ********************* end of tables creation ********************
 
+$archivedEtlTableName = $snow->archiveSyncTable();
 
 // ************* Display script log *************
 
@@ -250,6 +260,11 @@ if (count($createdTables) > 0)  {
 } else {
     echo PHP_EOL;
     print_r("No Snowflake Tables created");
+}
+
+if ($archiveEtl && !empty($archivedEtlTableName)) {
+    echo PHP_EOL;
+    print_r("Archived ETL Table: " . $archivedEtlTableName);
 }
 
 print_r("\n");
