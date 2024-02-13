@@ -24,6 +24,7 @@ class SnowflakeLoader implements Loader {
     public $backupTableName = '';
     public $tableCreationStatus = '';
     public $syncTableName = "etl_log";
+    public $archiveSyncTable = false;
     public $createTableQuery = ""; //variable to hold the create table query
     public $temporaryTable = null;
     public $temporaryTableQuery = "";
@@ -121,6 +122,27 @@ class SnowflakeLoader implements Loader {
     public function addChunkRowCount(int $chunk): void
     {
         $this->chunkRowCounts[] = $chunk;
+    }
+
+    /**
+     * Sets the flag to indicate whether the sync table should be archived.
+     *
+     * @param bool $archive Whether to archive the sync table or not. Default is false.
+     * @return void
+     */
+    public function setArchiveSyncTableFlag(bool $archive = false): void
+    {
+        $this->archiveSyncTable = $archive;
+    }
+
+    /**
+     * Checks if the flag to archive the sync table is set.
+     *
+     * @return bool True if the sync table should be archived, false otherwise.
+     */
+    public function isArchiveSyncTableSet(): bool
+    {
+        return $this->archiveSyncTable;
     }
 
     /**
@@ -435,6 +457,16 @@ class SnowflakeLoader implements Loader {
         $this->primaryKeyColumn = null;
     }
 
+    /**
+     * Creates a table schema from raw data.
+     *
+     * @param string $rawData The raw data to create the table schema from.
+     * @param string $table The name of the table.
+     * @param string $primaryKeyColumn The name of the primary key column (optional).
+     * @param bool $dropCreate Whether to drop and recreate the table (optional, default: false).
+     * @param bool $backupPreviousTable Whether to backup the previous table (optional, default: false).
+     * @return bool Returns true if the table schema was created successfully, false otherwise.
+     */
     public function createTableSchemaFromData(string $rawData, string $table, string $primaryKeyColumn = '', bool $dropCreate = false, bool $backupPreviousTable = false): bool
     {
         try {
@@ -502,6 +534,12 @@ class SnowflakeLoader implements Loader {
         }
     }
 
+    /**
+     * Checks if a table exists in the Snowflake database.
+     *
+     * @param string $table The name of the table to check.
+     * @return bool Returns true if the table exists, false otherwise.
+     */
     public function tableExists(string $table): bool
     {
         $query = "SHOW TABLES LIKE '{$table}'";
@@ -509,6 +547,12 @@ class SnowflakeLoader implements Loader {
         return (count($result) > 0);
     }
 
+    /**
+     * Drops a table from the Snowflake database if it exists.
+     *
+     * @param string $table The name of the table to be dropped.
+     * @return bool Returns true if the table was dropped successfully, false otherwise.
+     */
     public function dropTable(string $table): bool
     {
         $query = "DROP TABLE IF EXISTS {$table}";
@@ -518,6 +562,12 @@ class SnowflakeLoader implements Loader {
         return (empty($this->errorInfo) && empty($this->errorMessage));
     }
 
+    /**
+     * Creates a backup of a table in Snowflake.
+     *
+     * @param string $table The name of the table to be backed up.
+     * @return bool Returns true if the backup was successful, false otherwise.
+     */
     public function backupTable(string $table): bool
     {
         // Create the backup database if it does not exist
@@ -548,6 +598,29 @@ class SnowflakeLoader implements Loader {
         return (empty($this->errorInfo) && empty($this->errorMessage));
     }
 
+    /**
+     * Archives the sync table by renaming it with a timestamp suffix.
+     * The new table name is returned upon success. Otherwise, an empty string is returned.
+     *
+     * @return string
+     */
+    public function archiveSyncTable(): string
+    {
+        if ($this->isArchiveSyncTableSet() && !empty($this->syncTableName)) {
+            $currentTime = time();
+            $newTableName = $this->syncTableName . "_" . $currentTime;
+            $this->executeQuery(
+                "ALTER TABLE IF EXISTS {$this->syncTableName} RENAME TO {$newTableName}"
+            );
+            return (empty($this->errorInfo) && empty($this->errorMessage)) ? $newTableName : '';
+        }
+    }
+
+    /**
+     * Returns the name of the backup table.
+     *
+     * @return string The name of the backup table.
+     */
     public function getBackupTableName(): string
     {
         return $this->backupTableName;

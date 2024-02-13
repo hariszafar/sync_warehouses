@@ -33,11 +33,12 @@ $config = [
 
     'fm_db'   => $_ENV['FM_DB_NAME'],
     'fm_tables_prefix'   => $_ENV['FM_TABLES_PREFIX'],
-    'fm_tables_suffix'   => $_ENV['FM_TABLES_SUFFIX'] ?? "_data_warehouse",
+    'fm_tables_suffix'   => $_ENV['FM_TABLES_SUFFIX'] ?? '',
     'X-FM-Server-Version' => $_ENV['FM_SERVER_VERSION'],
     'fm_host' => $_ENV['FM_HOST'],
-    'fm_user' => $_ENV['FM_USER'] ?? 'realOne',
-    'fm_password' => $_ENV['FM_PASSWORD'] ?? 'realOne@123',
+    'fm_user' => $_ENV['FM_USER'] ?? '',
+    'fm_password' => $_ENV['FM_PASSWORD'] ?? '',
+    'fm_fetch_limit' => $_ENV['FM_FETCH_LIMIT'],
     'aws' => [
         'region'  => $_ENV['AWS_REGION'],
         'version' => $_ENV['AWS_REGION'],

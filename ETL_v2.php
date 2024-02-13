@@ -150,7 +150,7 @@ if ($localTesting) {
     ];
 }
 
-$limit = 1000; // limit the number of records to be fetched from the source table in one iterative go
+$limit = $config['fm_fetch_limit'] ?? 2000; // limit the number of records to be fetched from the source table in one iterative go
 $defaultSnowflakeInsertChunkSize = 500; // default insert chunk size for snowflake
 
 if (!$targetedExecution || $rdsTargeted) {
