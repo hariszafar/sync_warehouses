@@ -440,7 +440,7 @@ class SnowflakeLoader implements Loader {
         try {
             $start = microtime(true);
             $this->verboseLog(PHP_EOL . "======================================" . PHP_EOL . 
-            "Snowflake - createTableSchemaFromData Process for `{$table}` - BEGIN" . PHP_EOL);
+            "Snowflake - createTableSchemaFromData Process for `{$table}` - BEGIN");
 
             // Run cleanup processes first
             $this->rawData = $rawData;
@@ -494,7 +494,7 @@ class SnowflakeLoader implements Loader {
 
             $this->verboseLog(PHP_EOL . "Snowflake - createTableSchemaFromData Process for table {$table} - END ("
                 . number_format((microtime(true) - $start), 4) . "s)" . PHP_EOL 
-                . "======================================" . PHP_EOL . PHP_EOL);
+                . "======================================" . PHP_EOL);
             return true;
         } catch (\Throwable $th) {
             $this->log('', false, "Exception encountered in " . __FUNCTION__ ." method. " .$th->getMessage());
