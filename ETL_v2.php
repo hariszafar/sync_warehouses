@@ -150,7 +150,8 @@ if ($localTesting) {
     ];
 }
 
-$limit = $config['fm_fetch_limit'] ?? 2000; // limit the number of records to be fetched from the source table in one iterative go
+// limit the number of records to be fetched from the source table in one iterative go
+$limit = $config['fm_fetch_limit'];
 $defaultSnowflakeInsertChunkSize = 500; // default insert chunk size for snowflake
 
 if (!$targetedExecution || $rdsTargeted) {
@@ -203,7 +204,7 @@ foreach ($tablesMap as $dest_table => $source_table)
         $sort = ($isTimestampTable) ? getTimeSort($dest_table) : null;
         // extract timestamp column name in a variable for later use if this is a timestamp table
         if ($isTimestampTable) {
-            $timestampColumn = $sort[0]["fieldName"];
+            $timestampColumn = $sort[0]["fieldName"] ?? null;
             $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
         }
         if (!$targetedExecution || $rdsTargeted) {
@@ -266,7 +267,10 @@ foreach ($tablesMap as $dest_table => $source_table)
                     }
                     if (!empty($mappedTimestampColumn)) {
                         $rdsLastModifiedTimestamp[$dest_table] = date_format(
-                            date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                            date_create_from_format(
+                                'Y-m-d H:i:s',
+                                $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                            ),
                             'Y-m-d H:i:s'
                         ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
                         ?? date('Y-m-d H:i:s'); // fallback to current date
@@ -296,7 +300,10 @@ foreach ($tablesMap as $dest_table => $source_table)
                     }
                     if (!empty($mappedTimestampColumn)) {
                         $snowLastModifiedTimestamp[$dest_table] = date_format(
-                            date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                            date_create_from_format(
+                                'Y-m-d H:i:s',
+                                $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                            ),
                             'Y-m-d H:i:s'
                         ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
                         ?? date('Y-m-d H:i:s'); // fallback to current date
@@ -386,7 +393,10 @@ foreach ($tablesMap as $dest_table => $source_table)
                         }
                         if (!empty($mappedTimestampColumn)) {
                             $rdsLastModifiedTimestamp[$dest_table] = date_format(
-                                date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                                date_create_from_format(
+                                    'Y-m-d H:i:s',
+                                    $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                ),
                                 'Y-m-d H:i:s'
                             ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
                             ?? date('Y-m-d H:i:s'); // fallback to current date
@@ -462,7 +472,10 @@ foreach ($tablesMap as $dest_table => $source_table)
                         }
                         if (!empty($mappedTimestampColumn)) {
                             $snowLastModifiedTimestamp[$dest_table] = date_format(
-                                date_create_from_format('Y-m-d H:i:s', $rs_array[count($rs_array) - 1][$mappedTimestampColumn]),
+                                date_create_from_format(
+                                    'Y-m-d H:i:s',
+                                    $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                ),
                                 'Y-m-d H:i:s'
                             ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
                             ?? date('Y-m-d H:i:s'); // fallback to current date

@@ -606,14 +606,16 @@ class SnowflakeLoader implements Loader {
      */
     public function archiveSyncTable(): string
     {
+        $newTableName = '';
         if ($this->isArchiveSyncTableSet() && !empty($this->syncTableName)) {
             $currentTime = time();
             $newTableName = $this->syncTableName . "_" . $currentTime;
             $this->executeQuery(
                 "ALTER TABLE IF EXISTS {$this->syncTableName} RENAME TO {$newTableName}"
             );
-            return (empty($this->errorInfo) && empty($this->errorMessage)) ? $newTableName : '';
+            $newTableName = (empty($this->errorInfo) && empty($this->errorMessage)) ? $newTableName : '';
         }
+        return $newTableName;
     }
 
     /**
