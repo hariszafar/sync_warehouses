@@ -21,6 +21,7 @@ $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
 $config = [
+    'baseUrl' => $_ENV['BASE_URL'],
     'host'    => $_ENV['DB_HOST'],
     'user'    => $_ENV['DB_USER'],
     'pass'    => $_ENV['DB_PASS'],
