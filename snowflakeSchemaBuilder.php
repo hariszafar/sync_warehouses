@@ -83,14 +83,14 @@ if (isset($options['archive_etl']) || isset($_REQUEST['archive_etl'])) {
 
 // list of tables to ignore
 $ignoreTables = (isset($options['ignore']) || isset($_REQUEST['ignore'])) ?
-    (explode(",", $options['ignore']) ?? explode(",", $_REQUEST['ignore'])) : [];
+    (explode(",", $options['ignore'] ?? $_REQUEST['ignore'])) : [];
 
 //turn all elements of ignoreTables to lowercase
 $ignoreTables = array_map('strtolower', $ignoreTables);
 
 //list of tables in Data Warehouse to be updated.
 $tablesParam = (isset($options['tables']) || isset($_REQUEST['tables'])) ?
-    (explode(",", $options['tables']) ?? explode(",", $_REQUEST['tables'])) : [];
+    (explode(",", $options['tables'] ?? $_REQUEST['tables'])) : [];
 $tablesParam = array_map('trim', $tablesParam);
 $defaultTablesList = require(__DIR__ . DIRECTORY_SEPARATOR . 'config'
     . DIRECTORY_SEPARATOR . 'destTablesList.php');
