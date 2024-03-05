@@ -30,11 +30,21 @@ $targetedExecution = false; // flag to check whether a specific script has been 
 $snowflakeTargeted = false; // flag to check whether snowflake has been targeted
 $rdsTargeted = false; //flag to check whether rds has been targeted
 $targets = [];
+
+$defaultTablesList = require(__DIR__ . DIRECTORY_SEPARATOR . 'config'
+    . DIRECTORY_SEPARATOR . 'destTablesList.php');
+
+// create an array of table names with the chunk size option
+$tableChunkSizeOptions = array_map( function($tableName) {
+    return $tableName . '_chunk_size' . ':' ;
+}, $defaultTablesList);
+
 if (defined('PHP_SAPI') && 'cli' === PHP_SAPI) {
     $GLOBALS['_SESSION'] = [];
     // get options eg ETL.php --type therapist - [returns an array of options]
-    $options = getopt(null ?? '', ['tables:', 'logging_off:', 'verbose:',
-        'ignore:', 'debug_logging:', 'local_testing:', 'days_old:', 'target:']);
+    $options = getopt(null ?? '', array_merge(['tables:', 'logging_off:', 'verbose:',
+        'ignore:', 'debug_logging:', 'local_testing:', 'days_old:', 'target:',
+        'force_chunk_size:'], $tableChunkSizeOptions));
 } elseif (session_status() == PHP_SESSION_NONE) { // uses session to store data api token
     session_start();
     header("Access-Control-Allow-Origin: *");
@@ -83,17 +93,16 @@ if ($verboseLogging) {
 
 // list of tables to ignore
 $ignoreTables = (isset($options['ignore']) || isset($_REQUEST['ignore'])) ?
-    (explode(",", $options['ignore']) ?? explode(",", $_REQUEST['ignore'])) : [];
+    (explode(",", $options['ignore'] ?? $_REQUEST['ignore'])) : [];
 
 //turn all elements of ignoreTables to lowercase
 $ignoreTables = array_map('strtolower', $ignoreTables);
 
 //list of tables in Data Warehouse to be updated.
 $tablesParam = (isset($options['tables']) || isset($_REQUEST['tables'])) ?
-    (explode(",", $options['tables']) ?? explode(",", $_REQUEST['tables'])) : [];
+    (explode(",", $options['tables'] ?? $_REQUEST['tables'])) : [];
 $tablesParam = array_map('trim', $tablesParam);
-$defaultTablesList = require(__DIR__ . DIRECTORY_SEPARATOR . 'config'
-    . DIRECTORY_SEPARATOR . 'destTablesList.php');
+
 $dest_table_list = (!empty($tablesParam)) ? $tablesParam : $defaultTablesList;
 
 //map primary keys with the respective tables
@@ -135,6 +144,11 @@ if (isset($options['days_old'])) {
     $daysOffset = 20; //default value of 20 days for each sync iteration
 }
 
+if (isset($options['force_chunk_size']) || isset($_REQUEST['force_chunk_size'])) {
+    $forceChunkSize = (int) ($options['force_chunk_size'] ?? $_REQUEST['force_chunk_size']);
+} else {
+    $forceChunkSize = null;
+}
 $logging =  isset($options['logging_off']) ? 0 : 1;
 $debug_logging = (isset($options['debug_logging']) && $options['debug_logging'] == 0) ? 0 : 1;
 $db = $config['fm_db']; // database name on FileMaker server
@@ -151,7 +165,7 @@ if ($localTesting) {
 }
 
 // limit the number of records to be fetched from the source table in one iterative go
-$limit = $config['fm_fetch_limit'];
+$limit = $forceChunkSize ?? $config['fm_fetch_limit'];
 $defaultSnowflakeInsertChunkSize = 500; // default insert chunk size for snowflake
 
 if (!$targetedExecution || $rdsTargeted) {
@@ -174,7 +188,8 @@ if (!$targetedExecution || $snowflakeTargeted) {
         $snow->clearLogFile(); // initialize log file
         $snow->setDebugLogging($debug_logging);
         $snow->setInsertChunkSize(
-            $config['snowflake']['insertChunkSize'] ?? $defaultSnowflakeInsertChunkSize
+            $forceChunkSize ?? $config['snowflake']['insertChunkSize']
+            ?? $defaultSnowflakeInsertChunkSize
         ); // set the insert chunk size
     } catch (\Throwable $th) {
         die("Error: Unable to establish connection with Snowflake. [" . $th->getCode()
@@ -198,6 +213,13 @@ include_once(__DIR__ . DIRECTORY_SEPARATOR . 'functions.php');
 foreach ($tablesMap as $dest_table => $source_table)
 {
     if (in_array($dest_table, $dest_table_list) && !in_array(strtolower($dest_table), $ignoreTables)) {
+        $tableChunkSize = (
+            !empty($options[$dest_table . '_chunk_size']) || !empty($_REQUEST[$dest_table . '_chunk_size'])
+            ) ?
+            (int) ($options[$dest_table . '_chunk_size'] ?? $_REQUEST[$dest_table . '_chunk_size'])
+            : null;
+        $limit = $tableChunkSize ?? $forceChunkSize ?? $config['fm_fetch_limit'];
+        // die($dest_table . '_chunk_size: ' . $limit);
         $search = $rdsSearch = $snowflakeSearch = null;
         $isTimestampTable = searchContainsTimestamps($sourceSearchQuery[$dest_table] ?? []);
         // $sort = ($isTimestampTable) ? $timeSort : null;
@@ -214,6 +236,7 @@ foreach ($tablesMap as $dest_table => $source_table)
         if (!$targetedExecution || $snowflakeTargeted) {
             // $snowflakeSearch = ($isTimestampTable) ? $search : prepareSearch($snow, $daysOldSet, $daysOffset, $last_update, $dest_table, $sourceSearchQuery[$source_table] ?? null);
             $snowflakeSearch = prepareSearch($snow, $daysOldSet, $daysOffset, $last_update ?? null, $dest_table, $sourceSearchQuery[$dest_table] ?? null);
+            $snow->setInsertChunkSize($tableChunkSize ?? $forceChunkSize ?? $config['snowflake']['insertChunkSize'] ?? $defaultSnowflakeInsertChunkSize);
         }
         
         $extractOnce = shouldExtractOnce($rdsSearch ?? null, $snowflakeSearch ?? null);
