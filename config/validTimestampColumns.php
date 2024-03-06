@@ -2,5 +2,6 @@
 
 return [
     'modificationHostTimestamp',
+    'creationHostTimestamp',
     'timestamp'
 ];
