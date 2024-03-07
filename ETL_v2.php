@@ -289,10 +289,13 @@ foreach ($tablesMap as $dest_table => $source_table)
                         }
                     }
                     if (!empty($mappedTimestampColumn)) {
+                        //parsing of last record is required in case it is an object (e.g. narrative_report)
+                        $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                            (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
                         $rdsLastModifiedTimestamp[$dest_table] = date_format(
                             date_create_from_format(
                                 'Y-m-d H:i:s',
-                                $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
                             ),
                             'Y-m-d H:i:s'
                         ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
@@ -322,10 +325,13 @@ foreach ($tablesMap as $dest_table => $source_table)
                         }
                     }
                     if (!empty($mappedTimestampColumn)) {
+                        //parsing of last record is required in case it is an object (e.g. narrative_report)
+                        $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                            (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
                         $snowLastModifiedTimestamp[$dest_table] = date_format(
                             date_create_from_format(
                                 'Y-m-d H:i:s',
-                                $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
                             ),
                             'Y-m-d H:i:s'
                         ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
@@ -415,10 +421,13 @@ foreach ($tablesMap as $dest_table => $source_table)
                             }
                         }
                         if (!empty($mappedTimestampColumn)) {
+                            //parsing of last record is required in case it is an object (e.g. narrative_report)
+                            $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                                (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
                             $rdsLastModifiedTimestamp[$dest_table] = date_format(
                                 date_create_from_format(
                                     'Y-m-d H:i:s',
-                                    $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                    $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
                                 ),
                                 'Y-m-d H:i:s'
                             ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
@@ -494,10 +503,13 @@ foreach ($tablesMap as $dest_table => $source_table)
                             }
                         }
                         if (!empty($mappedTimestampColumn)) {
+                            //parsing of last record is required in case it is an object (e.g. narrative_report)
+                            $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                                (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
                             $snowLastModifiedTimestamp[$dest_table] = date_format(
                                 date_create_from_format(
                                     'Y-m-d H:i:s',
-                                    $rs_array[count($rs_array) - 1][$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                    $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
                                 ),
                                 'Y-m-d H:i:s'
                             ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning

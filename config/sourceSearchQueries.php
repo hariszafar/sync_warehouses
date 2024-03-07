@@ -33,18 +33,20 @@ return [
         ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER]
        ],
     'narrative_report' => [
-        ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER]
+        ['creationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER]
        ],
     'therapist' => [
         ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER, 'type' => '=therapist'],
         ['nameFull' => "=", 'omit' => 'true']
     ],
     'users' => [
-        ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER, 'type' => '=user'],
-        ['nameFull' => "=", 'omit' => 'true']
+        // ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER, 'subtype' => '=user'],
+        // ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER, 'subtype' => '=DME'],
+        // ['nameFull' => "=", 'omit' => 'true']
+        ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER, 'active' => '=1'],
     ],
     'reviewer' => [
-        ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER, 'type' => '=reviewer'],
+        ['modificationHostTimestamp' => DATETIME_SEARCH_PLACEHOLDER, 'reviewer' => '=1'],
         ['nameFull' => "=", 'omit' => 'true']
     ],
     'therapy_networks' => [
