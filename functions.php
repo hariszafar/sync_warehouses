@@ -21,7 +21,7 @@
      */
     function prepareSearch(Loader &$targetLoader, $daysOldSet = false, $daysOffset = 0, $lastUpdate = null, $destTable = '', $sourceSearchQuery = [])
     {
-        global $defaultFirstDateTime, $localTesting, $verboseLogLevel;
+        global $defaultFirstDateTime, $localTesting, $verboseLogLevel, $noDaySubtractionTables;
         $search = $sourceSearchQuery ?? [];
         $isTimestampTable = false;
         if (!$targetLoader) {
@@ -36,9 +36,10 @@
             if (!$isTimestampTable) {
                 return $search;
             } else {
+                $subtractDay = !in_array($destTable, $noDaySubtractionTables);
                 // If the days_old parameter is not set, fetch & use the lastSyncedTimestamp
                 if (!$daysOldSet) {
-                    $lastSyncedTimestamp = $targetLoader->getLastSyncedTimestamp($destTable) ?? $defaultFirstDateTime;
+                    $lastSyncedTimestamp = $targetLoader->getLastSyncedTimestamp($destTable, $subtractDay) ?? $defaultFirstDateTime;
 
                     $lastSyncedTimestamp = explode('.', $lastSyncedTimestamp ?? '')[0]; //explode the timestamp and remove the trailing zeros
 
@@ -46,19 +47,27 @@
                         echo "Timestamps for search values: " . PHP_EOL;
                         echo "lastSyncedTimestamp => " . var_dump($lastSyncedTimestamp) . PHP_EOL;
                         // echo "offsetTimestamp => " . var_dump($offsetTimestamp) . PHP_EOL;
-                        echo "Serach before replacing:" . PHP_EOL;
+                        echo "Search before replacing:" . PHP_EOL;
                         var_dump($search);
                     }
                     foreach ($search as $key => $value) {
-                        $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, ">=" . $lastSyncedTimestamp, $value);
+                        if ($subtractDay) {
+                            $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, ">=" . $lastSyncedTimestamp, $value);
+                        } else {
+                            $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, ">" . $lastSyncedTimestamp, $value);
+                        }
                     }
                     if ($verboseLogLevel > 1) {
-                        echo "Serach after replacing:" . PHP_EOL;
+                        echo "Search after replacing:" . PHP_EOL;
                         var_dump($search);
                     }
                 } else {
                     foreach ($search as $key => $value) {
-                        $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, ">=" . $lastUpdate, $value);    
+                        if ($subtractDay) {
+                            $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, ">=" . $lastUpdate, $value);
+                        } else {
+                            $search[$key] = str_replace(DATETIME_SEARCH_PLACEHOLDER, ">" . $lastUpdate, $value);
+                        }
                     }
                 }
             }
