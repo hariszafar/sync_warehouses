@@ -1198,9 +1198,10 @@ Affected Rows: " . $affectedRows . "
      * Get the last synced timestamp for a specific table in 'm/d/Y H:i:s' format to mock the behavior of the FileMaker API.
      *
      * @param string $table The name of the table.
+     * @param bool $subtractDay Whether to subtract a day from the last synced timestamp.
      * @return string|null The last synced timestamp, or null if no record was found.
      */
-    public function getLastSyncedTimestamp($table)
+    public function getLastSyncedTimestamp($table, $subtractDay = true)
     {
         // Make sure the sync_status table exists, and create it if it doesn't
         if (!$this->ensureSyncStatusTableExists()) {
@@ -1219,7 +1220,12 @@ Affected Rows: " . $affectedRows . "
         if (isset($result) && isset($result[0]['DATE_MODIFIED'])) {
 			// Convert the timestamp to a string in 'm/d/Y H:i:s' format, and take the date one day back
 			// $lastSyncedTimestamp = date('m/d/Y H:i:s', strtotime($result[0]['DATE_MODIFIED']));
-			$lastSyncedTimestamp = date('m/d/Y 00:00:00', strtotime($result[0]['DATE_MODIFIED'] . ' -1 day'));
+            $lastSyncedTimestamp = $result[0]['DATE_MODIFIED'] ?? $lastSyncedTimestamp;
+            $timestampForDate = ($subtractDay)
+				? strtotime($lastSyncedTimestamp . ' -1 day')
+				: strtotime($lastSyncedTimestamp);
+			$lastSyncedTimestamp = date('m/d/Y 00:00:00', $timestampForDate);
+			// $lastSyncedTimestamp = date('m/d/Y 00:00:00', strtotime($result[0]['DATE_MODIFIED'] . ' -1 day'));
 		}
 
         // Return the last synced timestamp, or null if no record was found

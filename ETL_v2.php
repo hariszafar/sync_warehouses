@@ -127,6 +127,10 @@ $tablesMap = require(__DIR__ . DIRECTORY_SEPARATOR . 'config'
 $tableColumnMaps = require(__DIR__ . DIRECTORY_SEPARATOR . 'config'
     . DIRECTORY_SEPARATOR . 'tableColumnMaps.php');
 
+// Tables that do not require the subtraction of days from the last modified date
+$noDaySubtractionTables = require(__DIR__ . DIRECTORY_SEPARATOR . 'config'
+    . DIRECTORY_SEPARATOR . 'noDaySubtractionTables.php');
+
 $source_list = [];
 
 // default first date time in case the last record's modified date can't be retrieved from the etl_log table

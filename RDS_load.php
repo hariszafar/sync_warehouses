@@ -134,10 +134,10 @@ class RDS_load implements Loader {
 			// Query has executed successfully, and no error has been returned
 			if ($this->isDebugLoggingEnabled()) {
 				if ($this->queryLogsEnabled) {
-					$this->log($this->getCreateTableQuery(), true);
+					// $this->log($this->getCreateTableQuery(), true);
 				}
 				$logMessage = "Table {$this->table} created successfully.";
-				$this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']); // not logging for successful tasks
+				// $this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']); // not logging for successful tasks
 			}
 		} else {
 			if ($this->queryLogsEnabled) {
@@ -313,7 +313,7 @@ class RDS_load implements Loader {
 			if ($this->dbconn->query($alterQuery) === TRUE && $this->dbconn->errno == 0) {
 				$logMessage = "Table `{$this->table}` updated successfully."
 				. PHP_EOL . "Alter query:". PHP_EOL . $alterQuery;
-				$this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
+				// $this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
 			} else {
 				$logMessage = "Error updating table (`{$this->table}`): " . $this->dbconn->error
 				. PHP_EOL . "Attempted Alter query:". PHP_EOL . $alterQuery;
@@ -434,7 +434,7 @@ class RDS_load implements Loader {
 				
 				if ($this->isDebugLoggingEnabled()) {
 					// Line-wise logging of queries
-					$this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
+					// $this->log('', true, $logMessage, self::$LOGTYPES['TASK_SUMMARY']);
 				}
 			} else {
 				$logMessage = "Error inserting new records into table (`{$this->table}`): " . $this->dbconn->error;
@@ -459,9 +459,10 @@ class RDS_load implements Loader {
 	 * Get the last synced timestamp for a specific table in 'm/d/Y H:i:s' format to mock the behavior of the FileMaker API.
 	 *
 	 * @param string $table The name of the table.
+	 * @param bool $subtractDay Whether to subtract a day from the last synced timestamp.
 	 * @return string|null The last synced timestamp (date_time column), or null if no record was found.
 	 */
-	public function getLastSyncedTimestamp($table)
+	public function getLastSyncedTimestamp($table, $subtractDay = true)
 	{
 		// Make sure the sync_status table exists, and create it if it doesn't
 		if (!$this->ensureSyncStatusTableExists()) {
@@ -485,7 +486,10 @@ class RDS_load implements Loader {
 		if (isset($lastSyncedTimestamp)) {
 			// Convert the timestamp to a string in 'm/d/Y H:i:s' format, and take the date one day back
 			// $lastSyncedTimestamp = date('m/d/Y H:i:s', strtotime($lastSyncedTimestamp));
-			$lastSyncedTimestamp = date('m/d/Y 00:00:00', strtotime($lastSyncedTimestamp . ' -1 day'));
+			$timestampForDate = ($subtractDay)
+				? strtotime($lastSyncedTimestamp . ' -1 day')
+				: strtotime($lastSyncedTimestamp);
+			$lastSyncedTimestamp = date('m/d/Y 00:00:00', $timestampForDate);
 		}
 
 		// Return the last synced timestamp, or null if no record was found
