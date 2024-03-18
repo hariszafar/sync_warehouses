@@ -462,7 +462,7 @@ class RDS_load implements Loader {
 	 * @param bool $subtractDay Whether to subtract a day from the last synced timestamp.
 	 * @return string|null The last synced timestamp (date_time column), or null if no record was found.
 	 */
-	public function getLastSyncedTimestamp($table, $subtractDay = true)
+	public function getLastSyncedTimestamp($table, $subtractDay = false)
 	{
 		// Make sure the sync_status table exists, and create it if it doesn't
 		if (!$this->ensureSyncStatusTableExists()) {
@@ -486,10 +486,15 @@ class RDS_load implements Loader {
 		if (isset($lastSyncedTimestamp)) {
 			// Convert the timestamp to a string in 'm/d/Y H:i:s' format, and take the date one day back
 			// $lastSyncedTimestamp = date('m/d/Y H:i:s', strtotime($lastSyncedTimestamp));
-			$timestampForDate = ($subtractDay)
-				? strtotime($lastSyncedTimestamp . ' -1 day')
-				: strtotime($lastSyncedTimestamp);
-			$lastSyncedTimestamp = date('m/d/Y 00:00:00', $timestampForDate);
+			// $timestampForDate = ($subtractDay)
+			// 	? strtotime($lastSyncedTimestamp . ' -1 day')
+			// 	: strtotime($lastSyncedTimestamp);
+			// $lastSyncedTimestamp = date('m/d/Y 00:00:00', $timestampForDate);
+			if ($subtractDay) {
+                $lastSyncedTimestamp = date('m/d/Y 00:00:00', strtotime($lastSyncedTimestamp . ' -1 day'));
+            } else {
+                $lastSyncedTimestamp = date('m/d/Y H:i:s', strtotime($lastSyncedTimestamp));
+            }
 		}
 
 		// Return the last synced timestamp, or null if no record was found
