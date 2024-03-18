@@ -21,7 +21,7 @@
      */
     function prepareSearch(Loader &$targetLoader, $daysOldSet = false, $daysOffset = 0, $lastUpdate = null, $destTable = '', $sourceSearchQuery = [])
     {
-        global $defaultFirstDateTime, $localTesting, $verboseLogLevel, $noDaySubtractionTables;
+        global $defaultFirstDateTime, $localTesting, $verboseLogLevel, $daySubtractionTables;
         $search = $sourceSearchQuery ?? [];
         $isTimestampTable = false;
         if (!$targetLoader) {
@@ -36,7 +36,7 @@
             if (!$isTimestampTable) {
                 return $search;
             } else {
-                $subtractDay = !in_array($destTable, $noDaySubtractionTables);
+                $subtractDay = in_array($destTable, $daySubtractionTables);
                 // If the days_old parameter is not set, fetch & use the lastSyncedTimestamp
                 if (!$daysOldSet) {
                     $lastSyncedTimestamp = $targetLoader->getLastSyncedTimestamp($destTable, $subtractDay) ?? $defaultFirstDateTime;
