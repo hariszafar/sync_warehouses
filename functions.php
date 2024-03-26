@@ -36,7 +36,7 @@
             if (!$isTimestampTable) {
                 return $search;
             } else {
-                $subtractDay = in_array($destTable, $daySubtractionTables);
+                $subtractDay = in_array($destTable, $daySubtractionTables ?? []);
                 // If the days_old parameter is not set, fetch & use the lastSyncedTimestamp
                 if (!$daysOldSet) {
                     $lastSyncedTimestamp = $targetLoader->getLastSyncedTimestamp($destTable, $subtractDay) ?? $defaultFirstDateTime;
@@ -207,6 +207,41 @@ if (!function_exists('rdsEtlLogUpdate')) {
     }
 }
 
+// Method to log sync failure to etl_log table in RDS
+if (!function_exists('rdsEtlLogFailure')) {
+    /**
+     * Logs the sync failure to the ETL log table in RDS.
+     *
+     * @param RDS_Load $rds The RDS object used for database operations.
+     * @param string $destTable The destination table.
+     * @param string $errorMessage The error message.
+     * @return void
+     */
+    function rdsEtlLogFailure(&$rds, $destTable, $errorMessage = null)
+    {
+        global $primaryKeyPairs, $logging;
+
+        $records = [];
+        $record = [];
+        $record["data_table"] = $destTable;
+        $record["records_modified"] =  0;
+        $record["records_added"] =  0;
+        $record["records_unchanged"] =  0;
+        $record["date_time"] = date("Y-m-d H:i:s");
+        $record["timelapse"] = 0;
+        $record["error"] = 1;
+        $record["error_message"] = $errorMessage;
+        $records[] = $record;
+
+        $json_log = json_encode($records, true);
+        if ($logging) {
+            $dest_table = "etl_log";
+            $primaryKey = $primaryKeyPairs[$dest_table];
+            $rds->updateTable($json_log, $dest_table, $primaryKey);
+        }
+    }
+}
+
 if (!function_exists('snowEtlLogUpdate')) {
     /**
      * Updates the ETL log with the Snowflake records.
@@ -240,6 +275,40 @@ if (!function_exists('snowEtlLogUpdate')) {
             $snowflakeRecord["timelapse"] = (int)$timeLapse; //this is the total timelapse for the particular table (including multiple iterations)
             $snowflakeRecords[] = $snowflakeRecord;
         }
+
+        if ($logging) {
+            $json_log = json_encode($snowflakeRecords, true);
+            $dest_table = "etl_log";
+            $primaryKey = $primaryKeyPairs[$dest_table];
+            $snow->updateTable($json_log, $dest_table, $primaryKey, true);
+        }
+    }
+}
+
+// Method to log sync failure to etl_log table in Snowflake
+if (!function_exists('snowEtlLogFailure')) {
+    /**
+     * Logs the sync failure to the ETL log table in Snowflake.
+     *
+     * @param SnowflakeLoader $snow The Snowflake object used for database operations.
+     * @param string $destTable The destination table.
+     * @param string $errorMessage The error message.
+     * @return void
+     */
+    function snowEtlLogFailure(&$snow, $destTable, $errorMessage = null)
+    {
+        global $primaryKeyPairs, $logging;
+
+        $snowflakeRecords = [];
+        $snowflakeRecord = [];
+        $snowflakeRecord["data_table"] = $destTable;
+        $snowflakeRecord["affected_rows"] =  0;
+        $snowflakeRecord["date_modified"] = null;
+        $snowflakeRecord["date_time"] = date("Y-m-d H:i:s");
+        $snowflakeRecord["timelapse"] = 0;
+        $snowflakeRecord["error"] = 1;
+        $snowflakeRecord["error_message"] = $errorMessage;
+        $snowflakeRecords[] = $snowflakeRecord;
 
         if ($logging) {
             $json_log = json_encode($snowflakeRecords, true);
