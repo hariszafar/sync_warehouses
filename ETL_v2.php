@@ -216,175 +216,56 @@ include_once(__DIR__ . DIRECTORY_SEPARATOR . 'functions.php');
 // Let's sync the data for each table (or each requested/targeted table)
 foreach ($tablesMap as $dest_table => $source_table)
 {
-    if (in_array($dest_table, $dest_table_list) && !in_array(strtolower($dest_table), $ignoreTables)) {
-        $tableChunkSize = (
-            !empty($options[$dest_table . '_chunk_size']) || !empty($_REQUEST[$dest_table . '_chunk_size'])
-            ) ?
-            (int) ($options[$dest_table . '_chunk_size'] ?? $_REQUEST[$dest_table . '_chunk_size'])
-            : null;
-        $limit = $tableChunkSize ?? $forceChunkSize ?? $config['fm_fetch_limit'];
-        // die($dest_table . '_chunk_size: ' . $limit);
-        $search = $rdsSearch = $snowflakeSearch = null;
-        $isTimestampTable = searchContainsTimestamps($sourceSearchQuery[$dest_table] ?? []);
-        // $sort = ($isTimestampTable) ? $timeSort : null;
-        $sort = ($isTimestampTable) ? getTimeSort($dest_table) : null;
-        // extract timestamp column name in a variable for later use if this is a timestamp table
-        if ($isTimestampTable) {
-            $timestampColumn = $sort[0]["fieldName"] ?? null;
-            $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
-        }
-        if (!$targetedExecution || $rdsTargeted) {
-            // $rdsSearch = ($isTimestampTable) ? $search : prepareSearch($rds, $daysOldSet, $daysOffset, $last_update, $dest_table, $sourceSearchQuery[$source_table] ?? null);
-            $rdsSearch = prepareSearch($rds, $daysOldSet, $daysOffset, $last_update ?? null, $dest_table, $sourceSearchQuery[$dest_table] ?? null);
-        }
-        if (!$targetedExecution || $snowflakeTargeted) {
-            // $snowflakeSearch = ($isTimestampTable) ? $search : prepareSearch($snow, $daysOldSet, $daysOffset, $last_update, $dest_table, $sourceSearchQuery[$source_table] ?? null);
-            $snowflakeSearch = prepareSearch($snow, $daysOldSet, $daysOffset, $last_update ?? null, $dest_table, $sourceSearchQuery[$dest_table] ?? null);
-            $snow->setInsertChunkSize($tableChunkSize ?? $forceChunkSize ?? $config['snowflake']['insertChunkSize'] ?? $defaultSnowflakeInsertChunkSize);
-        }
+    try {
         
-        $extractOnce = shouldExtractOnce($rdsSearch ?? null, $snowflakeSearch ?? null);
-        if ($extractOnce) {
-            $search = $rdsSearch ?? $snowflakeSearch;
-        }
-        $offset = 0;
-        $column_map = $tableColumnMaps[$dest_table] ?? [];
-
-        if ($extractOnce) {
-            // $search variable will be set above, in case of $extractOnce = true
-            // $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map, true); //use with local_testing only
-            $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map);
-            $fquery->offset = 0;
-            $update_res =  [];
-            do {
-                $rs = $fquery->getRecordSet(); // records from FileMaker to be update in mySQL
-                if ($dest_table == 'narrative_report') {
-                    $nrs = [];
-                    $rs_array = json_decode($rs ?? '');
-                    if (is_array($rs_array)) {
-                        foreach ($rs_array as $nrec) {
-                            $nt = $nrec->text_upper;
-                            $hcpcs = extractHCPCS($nt);
-                            $nrec->hcpcs = $hcpcs;
-                            $nrs[] = $nrec;
-                        }
-                        $rs = json_encode($nrs, true); //update the rs variable with the new data
-                    }
-                } else {
-                    $rs_array = json_decode($rs ?? '', true);
+        if (in_array($dest_table, $dest_table_list) && !in_array(strtolower($dest_table), $ignoreTables)) {
+            $tableChunkSize = (
+                !empty($options[$dest_table . '_chunk_size']) || !empty($_REQUEST[$dest_table . '_chunk_size'])
+                ) ?
+                (int) ($options[$dest_table . '_chunk_size'] ?? $_REQUEST[$dest_table . '_chunk_size'])
+                : null;
+            $limit = $tableChunkSize ?? $forceChunkSize ?? $config['fm_fetch_limit'];
+            // die($dest_table . '_chunk_size: ' . $limit);
+            $search = $rdsSearch = $snowflakeSearch = null;
+            $isTimestampTable = searchContainsTimestamps($sourceSearchQuery[$dest_table] ?? []);
+            // $sort = ($isTimestampTable) ? $timeSort : null;
+            $sort = ($isTimestampTable) ? getTimeSort($dest_table) : null;
+            // extract timestamp column name in a variable for later use if this is a timestamp table
+            if ($isTimestampTable) {
+                $timestampColumn = $sort[0]["fieldName"] ?? null;
+                $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+            }
+            if (!$targetedExecution || $rdsTargeted) {
+                // $rdsSearch = ($isTimestampTable) ? $search : prepareSearch($rds, $daysOldSet, $daysOffset, $last_update, $dest_table, $sourceSearchQuery[$source_table] ?? null);
+                try {
+                    $rdsSearch = prepareSearch($rds, $daysOldSet, $daysOffset, $last_update ?? null, $dest_table, $sourceSearchQuery[$dest_table] ?? null);
+                } catch (\Throwable $th) {
+                    // Log the error to ETL_Log as failed, and continue to the next table
+                    rdsEtlLogFailure($rds, $dest_table, "[E01]: " . $th->getMessage());
+                    continue;
                 }
-
-                $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
-                if ((!$targetedExecution || $rdsTargeted) && (count((array)$rs_array) > 0)) {
-                    $begin = microtime(true);
-                    $update_res[] = (count((array)$rs_array) > 0)  ? $rds->updateTable($rs, $dest_table, $primaryKey) : [0, 0, 0];
-                    $rdsTimeLapse[$dest_table] = (!empty($rdsTimeLapse[$dest_table])) ? $rdsTimeLapse[$dest_table] : 0;
-                    $rdsTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
-                    $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
-                    $mappedTimestampColumn = null;
-                    if ($isTimestampTable) {
-                        $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
-                    } else {
-                        foreach ($validTimestampColumns as $timestampColumn) {
-                            if (array_key_exists($timestampColumn, $column_map)) {
-                                $mappedTimestampColumn = $column_map[$timestampColumn];
-                                break;
-                            }
-                        }
-                    }
-                    if (!empty($mappedTimestampColumn)) {
-                        //parsing of last record is required in case it is an object (e.g. narrative_report)
-                        $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
-                            (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
-                        $rdsLastModifiedTimestamp[$dest_table] = date_format(
-                            date_create_from_format(
-                                'Y-m-d H:i:s',
-                                $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
-                            ),
-                            'Y-m-d H:i:s'
-                        ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
-                        ?? date('Y-m-d H:i:s'); // fallback to current date
-                    } else {
-                        $rdsLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
-                    }
-                }
-                if ((!$targetedExecution || $snowflakeTargeted) && (count((array)$rs_array) > 0)) {
-                    $begin = microtime(true);
-                    $snowflakeAffectedRows[$dest_table] = ((!empty($snowflakeAffectedRows[$dest_table])) ? $snowflakeAffectedRows[$dest_table] : 0);
-                    $snowflakeTimeLapse[$dest_table] = ((!empty($snowflakeTimeLapse[$dest_table])) ? $snowflakeTimeLapse[$dest_table] : 0);
-    
-                    $snowflakeAffectedRows[$dest_table] += (count((array)$rs_array) > 0) ? $snow->updateTable($rs, $dest_table, $primaryKey) : 0;
-                    $snowflakeTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
-
-                    $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
-                    $mappedTimestampColumn = null;
-                    if ($isTimestampTable) {
-                        $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
-                    } else {
-                        foreach ($validTimestampColumns as $timestampColumn) {
-                            if (array_key_exists($timestampColumn, $column_map)) {
-                                $mappedTimestampColumn = $column_map[$timestampColumn];
-                                break;
-                            }
-                        }
-                    }
-                    if (!empty($mappedTimestampColumn)) {
-                        //parsing of last record is required in case it is an object (e.g. narrative_report)
-                        $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
-                            (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
-                        $snowLastModifiedTimestamp[$dest_table] = date_format(
-                            date_create_from_format(
-                                'Y-m-d H:i:s',
-                                $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
-                            ),
-                            'Y-m-d H:i:s'
-                        ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
-                        ?? date('Y-m-d H:i:s'); // fallback to current date
-                    } else {
-                        $snowLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
-                    }
-                }
-                $offset += $limit;
-                $fquery->offset = $offset;
-            } while (count((array)$rs_array) > 0);
-    
-            // if ($isTimestampTable) {
-                // if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable && !$daysOldSet) {
-                // if ((!$targetedExecution || $rdsTargeted) && !$daysOldSet) {
-            if ((!$targetedExecution || $rdsTargeted)) {
-                // update etl_log table for RDS
-                if (isset($rdsTimeLapse[$dest_table]) && $rdsTimeLapse[$dest_table] > 0) {
-                    $logRecord = [$dest_table, sumRes($update_res)];
-                    rdsEtlLogUpdate($rds, $logRecord, $rdsTimeLapse[$dest_table], $rdsLastModifiedTimestamp[$dest_table]);
-                    if (!isset($log) || !is_array($log)) {
-                        $log = [];
-                    }
-                    $log[] = $logRecord;
-                    $source_list[$source_table] = $dest_table . ":" . array_sum(sumRes($update_res));
+            }
+            if (!$targetedExecution || $snowflakeTargeted) {
+                // $snowflakeSearch = ($isTimestampTable) ? $search : prepareSearch($snow, $daysOldSet, $daysOffset, $last_update, $dest_table, $sourceSearchQuery[$source_table] ?? null);
+                try {
+                    $snowflakeSearch = prepareSearch($snow, $daysOldSet, $daysOffset, $last_update ?? null, $dest_table, $sourceSearchQuery[$dest_table] ?? null);
+                    $snow->setInsertChunkSize($tableChunkSize ?? $forceChunkSize ?? $config['snowflake']['insertChunkSize'] ?? $defaultSnowflakeInsertChunkSize);
+                } catch (\Throwable $th) {
+                    // Log the error to ETL_Log as failed, and continue to the next table
+                    snowEtlLogFailure($snow, $dest_table, "[E01]: " . $th->getMessage());
+                    continue;
                 }
             }
 
-            // if ((!$targetedExecution || $snowflakeTargeted) && $isTimestampTable && !$daysOldSet) {
-            // if ((!$targetedExecution || $snowflakeTargeted) && !$daysOldSet) {
-            if ((!$targetedExecution || $snowflakeTargeted)) {
-                // Snowflake Logs
-                if (isset($snowflakeTimeLapse[$dest_table]) && $snowflakeTimeLapse[$dest_table] > 0) {
-                    if ($snowflakeAffectedRows[$dest_table] > 0) {
-                        $logRecord = [$dest_table => $snowflakeAffectedRows[$dest_table]];
-                        snowEtlLogUpdate($snow, $logRecord, $snowflakeTimeLapse[$dest_table], $snowLastModifiedTimestamp[$dest_table]);
-                    }
-                }
+            $extractOnce = shouldExtractOnce($rdsSearch ?? null, $snowflakeSearch ?? null);
+            if ($extractOnce) {
+                $search = $rdsSearch ?? $snowflakeSearch;
             }
-            // }
-    
-            //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
-            unset($fquery);
-        } else {
-            // $search variable will not be set above, in case of $extractOnce = false
-            // First, we'll extract data for RDS
-            if (isset($rdsSearch)) {
-                $search = $rdsSearch;
-                unset($rdsSearch);
+            $offset = 0;
+            $column_map = $tableColumnMaps[$dest_table] ?? [];
+
+            if ($extractOnce) {
+                // $search variable will be set above, in case of $extractOnce = true
                 // $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map, true); //use with local_testing only
                 $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map);
                 $fquery->offset = 0;
@@ -406,46 +287,98 @@ foreach ($tablesMap as $dest_table => $source_table)
                     } else {
                         $rs_array = json_decode($rs ?? '', true);
                     }
+
                     $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
                     if ((!$targetedExecution || $rdsTargeted) && (count((array)$rs_array) > 0)) {
-                        $begin = microtime(true);
-                        $update_res[] = (count((array)$rs_array) > 0)  ? $rds->updateTable($rs, $dest_table, $primaryKey) : [0, 0, 0];
-                        $rdsTimeLapse[$dest_table] = (!empty($rdsTimeLapse[$dest_table])) ? $rdsTimeLapse[$dest_table] : 0;
-                        $rdsTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
-                        $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
-                        $mappedTimestampColumn = null;
-                        if ($isTimestampTable) {
-                            $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
-                        } else {
-                            foreach ($validTimestampColumns as $timestampColumn) {
-                                if (array_key_exists($timestampColumn, $column_map)) {
-                                    $mappedTimestampColumn = $column_map[$timestampColumn];
-                                    break;
+                        try {
+                            $begin = microtime(true);
+                            $update_res[] = (count((array)$rs_array) > 0)  ? $rds->updateTable($rs, $dest_table, $primaryKey) : [0, 0, 0];
+                            $rdsTimeLapse[$dest_table] = (!empty($rdsTimeLapse[$dest_table])) ? $rdsTimeLapse[$dest_table] : 0;
+                            $rdsTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+                            $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                            $mappedTimestampColumn = null;
+                            if ($isTimestampTable) {
+                                $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                            } else {
+                                foreach ($validTimestampColumns as $timestampColumn) {
+                                    if (array_key_exists($timestampColumn, $column_map)) {
+                                        $mappedTimestampColumn = $column_map[$timestampColumn];
+                                        break;
+                                    }
                                 }
                             }
+                            if (!empty($mappedTimestampColumn)) {
+                                //parsing of last record is required in case it is an object (e.g. narrative_report)
+                                $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                                    (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
+                                $rdsLastModifiedTimestamp[$dest_table] = date_format(
+                                    date_create_from_format(
+                                        'Y-m-d H:i:s',
+                                        $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                    ),
+                                    'Y-m-d H:i:s'
+                                ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                                ?? date('Y-m-d H:i:s'); // fallback to current date
+                            } else {
+                                $rdsLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                            }
+                        } catch (\Throwable $th) {
+                            // Log the error to ETL_Log as failed
+                            rdsEtlLogFailure($rds, $dest_table, "[E02]: " . $th->getMessage());
+                            continue;
                         }
-                        if (!empty($mappedTimestampColumn)) {
-                            //parsing of last record is required in case it is an object (e.g. narrative_report)
-                            $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
-                                (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
-                            $rdsLastModifiedTimestamp[$dest_table] = date_format(
-                                date_create_from_format(
-                                    'Y-m-d H:i:s',
-                                    $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
-                                ),
-                                'Y-m-d H:i:s'
-                            ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
-                            ?? date('Y-m-d H:i:s'); // fallback to current date
-                        } else {
-                            $rdsLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                    }
+                    if ((!$targetedExecution || $snowflakeTargeted) && (count((array)$rs_array) > 0)) {
+                        try {
+                            $begin = microtime(true);
+                            $snowflakeAffectedRows[$dest_table] = ((!empty($snowflakeAffectedRows[$dest_table])) ? $snowflakeAffectedRows[$dest_table] : 0);
+                            $snowflakeTimeLapse[$dest_table] = ((!empty($snowflakeTimeLapse[$dest_table])) ? $snowflakeTimeLapse[$dest_table] : 0);
+
+                            $snowflakeAffectedRows[$dest_table] += (count((array)$rs_array) > 0) ? $snow->updateTable($rs, $dest_table, $primaryKey) : 0;
+                            $snowflakeTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+
+                            $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                            $mappedTimestampColumn = null;
+                            if ($isTimestampTable) {
+                                $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                            } else {
+                                foreach ($validTimestampColumns as $timestampColumn) {
+                                    if (array_key_exists($timestampColumn, $column_map)) {
+                                        $mappedTimestampColumn = $column_map[$timestampColumn];
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!empty($mappedTimestampColumn)) {
+                                //parsing of last record is required in case it is an object (e.g. narrative_report)
+                                $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                                    (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
+                                $snowLastModifiedTimestamp[$dest_table] = date_format(
+                                    date_create_from_format(
+                                        'Y-m-d H:i:s',
+                                        $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                    ),
+                                    'Y-m-d H:i:s'
+                                ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                                ?? date('Y-m-d H:i:s'); // fallback to current date
+                            } else {
+                                $snowLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                            }
+                        } catch (\Throwable $th) {
+                            // Log the error to ETL_Log as failed
+                            snowEtlLogFailure($snow, $dest_table, "[E02]: " . $th->getMessage());
+                            continue;
                         }
                     }
                     $offset += $limit;
                     $fquery->offset = $offset;
                 } while (count((array)$rs_array) > 0);
-    
-                // if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable) {
+
+                // if ($isTimestampTable) {
+                    // if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable && !$daysOldSet) {
+                    // if ((!$targetedExecution || $rdsTargeted) && !$daysOldSet) {
                 if ((!$targetedExecution || $rdsTargeted)) {
+                    // update etl_log table for RDS
                     if (isset($rdsTimeLapse[$dest_table]) && $rdsTimeLapse[$dest_table] > 0) {
                         $logRecord = [$dest_table, sumRes($update_res)];
                         rdsEtlLogUpdate($rds, $logRecord, $rdsTimeLapse[$dest_table], $rdsLastModifiedTimestamp[$dest_table]);
@@ -453,79 +386,12 @@ foreach ($tablesMap as $dest_table => $source_table)
                             $log = [];
                         }
                         $log[] = $logRecord;
-                        $source_list[$source_table] = $dest_table . ":" . count((array)$rs_array);
+                        $source_list[$source_table] = $dest_table . ":" . array_sum(sumRes($update_res));
                     }
                 }
-                //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
-                unset($fquery);
-            }
-    
-            // Next, we'll extract data for Snowflake
-            if (isset($snowflakeSearch)) {
-                $search = $snowflakeSearch;
-                unset($snowflakeSearch);
-                // $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map, true); //use with local_testing only
-                $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map);
-                $fquery->offset = 0;
-                $update_res =  [];
-                do {
-                    $rs = $fquery->getRecordSet(); // records from FileMaker to be update in mySQL
-                    if ($dest_table == 'narrative_report') {
-                        $nrs = [];
-                        $rs_array = json_decode($rs ?? '');
-                        if (is_array($rs_array)) {
-                            foreach ($rs_array as $nrec) {
-                                $nt = $nrec->text_upper;
-                                $hcpcs = extractHCPCS($nt);
-                                $nrec->hcpcs = $hcpcs;
-                                $nrs[] = $nrec;
-                            }
-                            $rs = json_encode($nrs, true); //update the rs variable with the new data
-                        }
-                    } else {
-                        $rs_array = json_decode($rs ?? '', true);
-                    }
-                    $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
-                    if ((!$targetedExecution || $snowflakeTargeted) && (count((array)$rs_array) > 0)) {
-                        $begin = microtime(true);
-                        $snowflakeAffectedRows[$dest_table] = ((!empty($snowflakeAffectedRows[$dest_table])) ? $snowflakeAffectedRows[$dest_table] : 0);
-                        $snowflakeTimeLapse[$dest_table] = ((!empty($snowflakeTimeLapse[$dest_table])) ? $snowflakeTimeLapse[$dest_table] : 0);
-    
-                        $snowflakeAffectedRows[$dest_table] += (count((array)$rs_array) > 0) ? $snow->updateTable($rs, $dest_table, $primaryKey) : 0;
-                        $snowflakeTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
 
-                        $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
-                        $mappedTimestampColumn = null;
-                        if ($isTimestampTable) {
-                            $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
-                        } else {
-                            foreach ($validTimestampColumns as $timestampColumn) {
-                                if (array_key_exists($timestampColumn, $column_map)) {
-                                    $mappedTimestampColumn = $column_map[$timestampColumn];
-                                    break;
-                                }
-                            }
-                        }
-                        if (!empty($mappedTimestampColumn)) {
-                            //parsing of last record is required in case it is an object (e.g. narrative_report)
-                            $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
-                                (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
-                            $snowLastModifiedTimestamp[$dest_table] = date_format(
-                                date_create_from_format(
-                                    'Y-m-d H:i:s',
-                                    $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
-                                ),
-                                'Y-m-d H:i:s'
-                            ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
-                            ?? date('Y-m-d H:i:s'); // fallback to current date
-                        } else {
-                            $snowLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
-                        }
-                    }
-                    $offset += $limit;
-                    $fquery->offset = $offset;
-                } while (count((array)$rs_array) > 0);
-    
+                // if ((!$targetedExecution || $snowflakeTargeted) && $isTimestampTable && !$daysOldSet) {
+                // if ((!$targetedExecution || $snowflakeTargeted) && !$daysOldSet) {
                 if ((!$targetedExecution || $snowflakeTargeted)) {
                     // Snowflake Logs
                     if (isset($snowflakeTimeLapse[$dest_table]) && $snowflakeTimeLapse[$dest_table] > 0) {
@@ -535,10 +401,194 @@ foreach ($tablesMap as $dest_table => $source_table)
                         }
                     }
                 }
+                // }
+
                 //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
                 unset($fquery);
+            } else {
+                // $search variable will not be set above, in case of $extractOnce = false
+                // First, we'll extract data for RDS
+                if (isset($rdsSearch)) {
+                    $search = $rdsSearch;
+                    unset($rdsSearch);
+                    // $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map, true); //use with local_testing only
+                    $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map);
+                    $fquery->offset = 0;
+                    $update_res =  [];
+                    do {
+                        try {
+                            //code...
+                            $rs = $fquery->getRecordSet(); // records from FileMaker to be update in mySQL
+                            if ($dest_table == 'narrative_report') {
+                                $nrs = [];
+                                $rs_array = json_decode($rs ?? '');
+                                if (is_array($rs_array)) {
+                                    foreach ($rs_array as $nrec) {
+                                        $nt = $nrec->text_upper;
+                                        $hcpcs = extractHCPCS($nt);
+                                        $nrec->hcpcs = $hcpcs;
+                                        $nrs[] = $nrec;
+                                    }
+                                    $rs = json_encode($nrs, true); //update the rs variable with the new data
+                                }
+                            } else {
+                                $rs_array = json_decode($rs ?? '', true);
+                            }
+                            $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
+                            if ((!$targetedExecution || $rdsTargeted) && (count((array)$rs_array) > 0)) {
+                                $begin = microtime(true);
+                                $update_res[] = (count((array)$rs_array) > 0)  ? $rds->updateTable($rs, $dest_table, $primaryKey) : [0, 0, 0];
+                                $rdsTimeLapse[$dest_table] = (!empty($rdsTimeLapse[$dest_table])) ? $rdsTimeLapse[$dest_table] : 0;
+                                $rdsTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+                                $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                                $mappedTimestampColumn = null;
+                                if ($isTimestampTable) {
+                                    $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                                } else {
+                                    foreach ($validTimestampColumns as $timestampColumn) {
+                                        if (array_key_exists($timestampColumn, $column_map)) {
+                                            $mappedTimestampColumn = $column_map[$timestampColumn];
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!empty($mappedTimestampColumn)) {
+                                    //parsing of last record is required in case it is an object (e.g. narrative_report)
+                                    $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                                        (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
+                                    $rdsLastModifiedTimestamp[$dest_table] = date_format(
+                                        date_create_from_format(
+                                            'Y-m-d H:i:s',
+                                            $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                        ),
+                                        'Y-m-d H:i:s'
+                                    ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                                    ?? date('Y-m-d H:i:s'); // fallback to current date
+                                } else {
+                                    $rdsLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                                }
+                            }
+                        } catch (\Throwable $th) {
+                            // Log the error to ETL_Log as failed
+                            rdsEtlLogFailure($rds, $dest_table, "[E03]: " . $th->getMessage());
+                            continue;
+                        }
+                        $offset += $limit;
+                        $fquery->offset = $offset;
+                    } while (count((array)$rs_array) > 0);
+
+                    // if ((!$targetedExecution || $rdsTargeted) && $isTimestampTable) {
+                    if ((!$targetedExecution || $rdsTargeted)) {
+                        if (isset($rdsTimeLapse[$dest_table]) && $rdsTimeLapse[$dest_table] > 0) {
+                            $logRecord = [$dest_table, sumRes($update_res)];
+                            rdsEtlLogUpdate($rds, $logRecord, $rdsTimeLapse[$dest_table], $rdsLastModifiedTimestamp[$dest_table]);
+                            if (!isset($log) || !is_array($log)) {
+                                $log = [];
+                            }
+                            $log[] = $logRecord;
+                            $source_list[$source_table] = $dest_table . ":" . count((array)$rs_array);
+                        }
+                    }
+                    //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
+                    unset($fquery);
+                }
+
+                // Next, we'll extract data for Snowflake
+                if (isset($snowflakeSearch)) {
+                    $search = $snowflakeSearch;
+                    unset($snowflakeSearch);
+                    // $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map, true); //use with local_testing only
+                    $fquery = new FM_extract($db, $host, $source_table, $dest_table, $search, $limit, $offset, $sort, $column_map);
+                    $fquery->offset = 0;
+                    $update_res =  [];
+                    do {
+                        try {
+                            //code...
+                            $rs = $fquery->getRecordSet(); // records from FileMaker to be update in mySQL
+                            if ($dest_table == 'narrative_report') {
+                                $nrs = [];
+                                $rs_array = json_decode($rs ?? '');
+                                if (is_array($rs_array)) {
+                                    foreach ($rs_array as $nrec) {
+                                        $nt = $nrec->text_upper;
+                                        $hcpcs = extractHCPCS($nt);
+                                        $nrec->hcpcs = $hcpcs;
+                                        $nrs[] = $nrec;
+                                    }
+                                    $rs = json_encode($nrs, true); //update the rs variable with the new data
+                                }
+                            } else {
+                                $rs_array = json_decode($rs ?? '', true);
+                            }
+                            $primaryKey = $primaryKeyPairs[$dest_table]; // Provide Primary Key for table
+                            if ((!$targetedExecution || $snowflakeTargeted) && (count((array)$rs_array) > 0)) {
+                                $begin = microtime(true);
+                                $snowflakeAffectedRows[$dest_table] = ((!empty($snowflakeAffectedRows[$dest_table])) ? $snowflakeAffectedRows[$dest_table] : 0);
+                                $snowflakeTimeLapse[$dest_table] = ((!empty($snowflakeTimeLapse[$dest_table])) ? $snowflakeTimeLapse[$dest_table] : 0);
+
+                                $snowflakeAffectedRows[$dest_table] += (count((array)$rs_array) > 0) ? $snow->updateTable($rs, $dest_table, $primaryKey) : 0;
+                                $snowflakeTimeLapse[$dest_table] += number_format(((microtime(true)) - $begin), 2);
+
+                                $rs_array = (!is_array($rs_array)) ? (array)$rs_array : $rs_array;
+                                $mappedTimestampColumn = null;
+                                if ($isTimestampTable) {
+                                    $mappedTimestampColumn = $column_map[$timestampColumn] ?? $timestampColumn;
+                                } else {
+                                    foreach ($validTimestampColumns as $timestampColumn) {
+                                        if (array_key_exists($timestampColumn, $column_map)) {
+                                            $mappedTimestampColumn = $column_map[$timestampColumn];
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!empty($mappedTimestampColumn)) {
+                                    //parsing of last record is required in case it is an object (e.g. narrative_report)
+                                    $lastRecord = (!is_array($rs_array[count($rs_array) - 1])) ?
+                                        (array)$rs_array[count($rs_array) - 1] : $rs_array[count($rs_array) - 1];
+                                    $snowLastModifiedTimestamp[$dest_table] = date_format(
+                                        date_create_from_format(
+                                            'Y-m-d H:i:s',
+                                            $lastRecord[$mappedTimestampColumn] ?? date('Y-m-d H:i:s')
+                                        ),
+                                        'Y-m-d H:i:s'
+                                    ) // date from last record - FM_extract converts it to 'Y-m-d H:i:s' while mapping and returning
+                                    ?? date('Y-m-d H:i:s'); // fallback to current date
+                                } else {
+                                    $snowLastModifiedTimestamp[$dest_table] = date('Y-m-d H:i:s');
+                                }
+                            }
+                        } catch (\Throwable $th) {
+                            // Log the error to ETL_Log as failed
+                            snowEtlLogFailure($snow, $dest_table, "[E03]: " . $th->getMessage());
+                            continue;
+                        }
+                        $offset += $limit;
+                        $fquery->offset = $offset;
+                    } while (count((array)$rs_array) > 0);
+
+                    if ((!$targetedExecution || $snowflakeTargeted)) {
+                        // Snowflake Logs
+                        if (isset($snowflakeTimeLapse[$dest_table]) && $snowflakeTimeLapse[$dest_table] > 0) {
+                            if ($snowflakeAffectedRows[$dest_table] > 0) {
+                                $logRecord = [$dest_table => $snowflakeAffectedRows[$dest_table]];
+                                snowEtlLogUpdate($snow, $logRecord, $snowflakeTimeLapse[$dest_table], $snowLastModifiedTimestamp[$dest_table]);
+                            }
+                        }
+                    }
+                    //since a new instance of FM_extract is created for each table, we need to unset the variable to free up memory
+                    unset($fquery);
+                }
             }
         }
+    } catch (\Throwable $th) {
+        // Log the error to log file as failed, and continue to next table
+        if ((!$targetedExecution || $rdsTargeted)) {
+            rdsEtlLogFailure($rds, $dest_table, "[E04]: " . $th->getMessage());
+        }
+        if ((!$targetedExecution || $snowflakeTargeted)) {
+            snowEtlLogFailure($snow, $dest_table, "[E04]: " . $th->getMessage());
+        }
+
     }
 }
 
